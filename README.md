@@ -6,6 +6,7 @@ A lightweight web interface for [Codex](https://github.com/openai/codex) that re
 
 ## Prerequisites
 
+- Node.js 24.8.0 or newer (the repository includes an `.nvmrc` pinned to 24.8.0)
 - [Codex CLI](https://github.com/openai/codex) installed and available in your `PATH`
 
 ## Installation
@@ -80,6 +81,14 @@ npm run dev -- --host 0.0.0.0 --daemon
 
 When started with password protection (default), the server prints the password to the console. Open the URL in your browser, enter the password, and you're in.
 The CLI also checks npm for new versions automatically at startup (at most once every 12 hours).
+
+## PWA Support
+
+- Production builds can be installed as a Progressive Web App from a supported browser.
+- The PWA caches only the application shell and static assets. Codex APIs, authentication requests, and event streams always require a network connection.
+- `localhost` is treated as a secure context and can be used for local PWA installation.
+- Remote devices must access the service through HTTPS provided by Tailscale Serve, a reverse proxy, or another secure tunnel. Plain HTTP over a LAN or Tailscale IP does not provide full PWA support.
+- The Vite development server does not register the Service Worker. Use a production build or preview when validating PWA behavior.
 
 ## UI Highlights
 
