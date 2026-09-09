@@ -23,6 +23,7 @@ import type {
   ThreadListResponse,
   ThreadReadResponse,
 } from './appServerDtos'
+import type { GetAccountResponse } from '../../documentation/app-server-schemas/typescript/v2/GetAccountResponse'
 import { CodexApiError, extractErrorMessage, normalizeCodexApiError } from './codexErrors'
 import {
   normalizeActiveTurnIdV2,
@@ -91,6 +92,7 @@ export type AccountRateLimitSnapshot = {
     balance: string | null
   } | null
   planType: string | null
+  accountName: string | null
 }
 
 type RpcCallOptions = {
@@ -679,7 +681,7 @@ export async function dismissPersistedServerRequests(requestIds: number[]): Prom
 }
 
 export async function resumeThread(threadId: string): Promise<void> {
-  await callRpc('thread/resume', { threadId })
+  await callRpc('thread/resume', { threadId, excludeTurns: true })
 }
 
 export async function archiveThread(threadId: string): Promise<void> {
@@ -885,7 +887,21 @@ function readCredits(snapshot: unknown): AccountRateLimitSnapshot['aiCredits'] {
   return { hasCredits, unlimited, balance }
 }
 
-function toRateLimitSnapshot(payload: GetAccountRateLimitsResponse): AccountRateLimitSnapshot | null {
+function readAccountDetails(payload: GetAccountResponse | null): { accountName: string | null; planType: string | null } {
+  const account = payload?.account
+  if (!account || account.type !== 'chatgpt') {
+    return { accountName: null, planType: null }
+  }
+  return {
+    accountName: account.email.trim() || null,
+    planType: account.planType || null,
+  }
+}
+
+function toRateLimitSnapshot(
+  payload: GetAccountRateLimitsResponse,
+  accountDetails: { accountName: string | null; planType: string | null },
+): AccountRateLimitSnapshot | null {
   const candidates: unknown[] = [payload.rateLimits]
   if (payload.rateLimitsByLimitId && typeof payload.rateLimitsByLimitId === 'object') {
     candidates.push(...Object.values(payload.rateLimitsByLimitId))
@@ -910,13 +926,17 @@ function toRateLimitSnapshot(payload: GetAccountRateLimitsResponse): AccountRate
     resetsAt: bestWindow.resetsAt,
     windows: extractAllWindows(bestSnapshot),
     aiCredits: readCredits(bestSnapshot),
-    planType: (bestSnapshot as Record<string, any>)?.planType || null,
+    planType: (bestSnapshot as Record<string, any>)?.planType || accountDetails.planType,
+    accountName: accountDetails.accountName,
   }
 }
 
 export async function getAccountRateLimitSnapshot(): Promise<AccountRateLimitSnapshot | null> {
-  const payload = await callRpc<GetAccountRateLimitsResponse>('account/rateLimits/read')
-  return toRateLimitSnapshot(payload)
+  const [payload, accountPayload] = await Promise.all([
+    callRpc<GetAccountRateLimitsResponse>('account/rateLimits/read'),
+    callRpc<GetAccountResponse>('account/read', { refreshToken: false }).catch(() => null),
+  ])
+  return toRateLimitSnapshot(payload, readAccountDetails(accountPayload))
 }
 
 export async function compactThreadContext(threadId: string): Promise<void> {

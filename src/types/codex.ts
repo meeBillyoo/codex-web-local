@@ -100,6 +100,7 @@ export type UiRateLimitUsage = {
     balance: string | null
   } | null
   planType: string | null
+  accountName?: string | null
 }
 
 export type UiMessage = {

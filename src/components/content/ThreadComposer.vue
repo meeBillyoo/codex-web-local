@@ -309,18 +309,30 @@
               {{ rateLimitLabel }}
             </span>
             <div class="thread-composer-status-popover" role="status" aria-live="polite">
-              <div class="thread-composer-popover-header">
-                <div class="thread-composer-popover-header-left">
-                  <span
-                    v-if="rateLimitUsage?.planType"
-                    class="thread-composer-popover-plan-badge"
-                    :data-plan="rateLimitUsage?.planType"
-                  >
-                    {{ rateLimitUsage?.planType.toUpperCase() }}
-                  </span>
-                  <span class="thread-composer-popover-gauge-icon" aria-hidden="true" />
-                  <span class="thread-composer-popover-title">{{ tUi(normalizedLanguage, 'composer.quotaRemainingTitle') }}</span>
-                </div>
+              <div
+                v-if="rateLimitUsage?.planType || rateLimitUsage?.accountName"
+                class="thread-composer-popover-header"
+              >
+                <span
+                  v-if="rateLimitUsage?.planType"
+                  class="thread-composer-popover-plan-badge"
+                  :data-plan="rateLimitUsage?.planType"
+                >
+                  {{ rateLimitUsage?.planType.toUpperCase() }}
+                </span>
+                <span
+                  v-if="rateLimitUsage?.accountName"
+                  class="thread-composer-popover-account-name"
+                  :title="rateLimitUsage.accountName"
+                >
+                  {{ rateLimitUsage.accountName }}
+                </span>
+              </div>
+              <div class="thread-composer-popover-quota-title">
+                <span class="thread-composer-popover-gauge-icon" aria-hidden="true" />
+                <span class="thread-composer-popover-title">
+                  {{ tUi(normalizedLanguage, 'composer.quotaRemainingTitle') }}{{ normalizedLanguage === 'zh' ? '：' : ':' }}
+                </span>
               </div>
               <p v-if="quotaWindowRows.length === 0" class="thread-composer-popover-line">{{ tUi(normalizedLanguage, 'composer.quotaDataUnavailable') }}</p>
               <div
@@ -643,26 +655,11 @@ function formatPersistedRequestTime(value: string): string {
     minute: '2-digit',
   }).format(date)
 }
-function formatCompactWindowDuration(minutes: number | null): string {
-  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
-    return ''
-  }
-  const rounded = Math.round(minutes)
-  if (rounded % 10080 === 0) {
-    return tUi(normalizedLanguage.value, 'composer.quotaWindowCompactWeeks', { weeks: rounded / 10080 })
-  }
-  if (rounded % 1440 === 0) {
-    return tUi(normalizedLanguage.value, 'composer.quotaWindowCompactDays', { days: rounded / 1440 })
-  }
-  if (rounded % 60 === 0) {
-    return tUi(normalizedLanguage.value, 'composer.quotaWindowCompactHours', { hours: rounded / 60 })
-  }
-  return tUi(normalizedLanguage.value, 'composer.quotaWindowCompactMinutes', { minutes: rounded })
-}
 const rateLimitLabel = computed(() => {
   const usage = props.rateLimitUsage
   if (!usage) return ''
 
+  let remaining = Math.max(0, Math.round(usage.remainingPercent))
   const windows = usage.windows ?? []
   if (windows.length > 0) {
     const minWindow = windows.reduce((lowest, current) => {
@@ -670,16 +667,12 @@ const rateLimitLabel = computed(() => {
       const lowestRemaining = 100 - lowest.usedPercent
       return currentRemaining < lowestRemaining ? current : lowest
     })
-    const remaining = Math.max(0, Math.round(100 - minWindow.usedPercent))
-    const window = formatCompactWindowDuration(minWindow.windowDurationMins)
-    if (window) {
-      return tUi(normalizedLanguage.value, 'composer.quotaRemainingWindow', { percent: remaining, window })
-    }
-    return tUi(normalizedLanguage.value, 'composer.quotaRemaining', { percent: remaining })
+    remaining = Math.max(0, Math.round(100 - minWindow.usedPercent))
   }
 
-  const remaining = Math.max(0, Math.round(usage.remainingPercent))
-  return tUi(normalizedLanguage.value, 'composer.quotaRemaining', { percent: remaining })
+  return normalizedLanguage.value === 'zh'
+    ? `额度: ${remaining}%`
+    : `Quota: ${remaining}%`
 })
 const quotaLevel = computed<'normal' | 'warn' | 'danger'>(() => {
   const usage = props.rateLimitUsage
@@ -1417,11 +1410,20 @@ watch(
 }
 
 .thread-composer-popover-header {
-  @apply flex items-center;
+  @apply flex min-w-0 items-center gap-2;
 }
 
 .thread-composer-popover-header-left {
   @apply flex items-center flex-wrap gap-2;
+}
+
+.thread-composer-popover-account-name {
+  @apply min-w-0 truncate text-[11px] font-medium;
+  color: var(--color-text-primary);
+}
+
+.thread-composer-popover-quota-title {
+  @apply mt-2 flex items-center gap-2;
 }
 
 .thread-composer-popover-plan-badge {

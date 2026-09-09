@@ -105,6 +105,17 @@ export function createAuthMiddleware(password: string): RequestHandler {
       return
     }
 
+    // API callers expect JSON. Returning the HTML login page with HTTP 200
+    // makes the frontend report a misleading malformed RPC envelope after a
+    // server restart invalidates the in-memory login token.
+    if (req.path === '/codex-api' || req.path.startsWith('/codex-api/')) {
+      res.status(401).json({
+        error: 'Authentication required',
+        loginUrl: '/auth/login',
+      })
+      return
+    }
+
     // No valid session — serve login page
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.status(200).send(LOGIN_PAGE_HTML)

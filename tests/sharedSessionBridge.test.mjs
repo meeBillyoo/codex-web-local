@@ -533,6 +533,73 @@ test('turn start and interrupt RPC calls trigger shared snapshot refresh after s
   }
 })
 
+test('failed RPC calls log safe request context for process managers', async () => {
+  const previousCodexHome = process.env.CODEX_HOME
+  const globalScope = globalThis
+  const previousSharedBridge = globalScope.__codexRemoteSharedBridge__
+  const previousConsoleError = console.error
+  const tempCodexHome = await mkdtemp(join(tmpdir(), 'codex-web-local-rpc-error-log-'))
+  const logLines = []
+  process.env.CODEX_HOME = tempCodexHome
+  delete globalScope.__codexRemoteSharedBridge__
+
+  const middleware = createCodexBridgeMiddleware()
+  const appServer = globalScope.__codexRemoteSharedBridge__?.appServer
+  assert.ok(appServer, 'expected shared appServer instance')
+
+  appServer.rpc = async () => {
+    throw new Error('simulated app-server failure')
+  }
+  console.error = (...args) => {
+    logLines.push(args.map((value) => String(value)).join(' '))
+  }
+
+  try {
+    const req = createJsonRequest('POST', '/codex-api/rpc?secret=query-value', {
+      method: 'thread/resume',
+      params: {
+        threadId: 'thread-log-1',
+        input: [{ type: 'text', text: 'sensitive-message-body' }],
+      },
+    })
+    const res = createResponseCapture()
+    let nextCalled = false
+
+    await middleware(req, res, () => {
+      nextCalled = true
+    })
+
+    assert.equal(nextCalled, false)
+    assert.equal(res.statusCode, 502)
+    assert.deepEqual(JSON.parse(res.body), {
+      error: 'simulated app-server failure',
+    })
+
+    const logOutput = logLines.join('\n')
+    assert.match(logOutput, /\[codex-web-local\] bridge request failed/)
+    assert.match(logOutput, /"httpMethod":"POST"/)
+    assert.match(logOutput, /"path":"\/codex-api\/rpc"/)
+    assert.match(logOutput, /"rpcMethod":"thread\/resume"/)
+    assert.match(logOutput, /"threadId":"thread-log-1"/)
+    assert.match(logOutput, /"message":"simulated app-server failure"/)
+    assert.doesNotMatch(logOutput, /query-value/)
+    assert.doesNotMatch(logOutput, /sensitive-message-body/)
+  } finally {
+    console.error = previousConsoleError
+    middleware.dispose()
+    delete globalScope.__codexRemoteSharedBridge__
+    if (previousSharedBridge) {
+      globalScope.__codexRemoteSharedBridge__ = previousSharedBridge
+    }
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME
+    } else {
+      process.env.CODEX_HOME = previousCodexHome
+    }
+    await rm(tempCodexHome, { recursive: true, force: true })
+  }
+})
+
 test('resolvePendingServerRequest refreshes after persisted state is marked resolved', async () => {
   const previousCodexHome = process.env.CODEX_HOME
   const globalScope = globalThis

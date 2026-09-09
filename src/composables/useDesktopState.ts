@@ -1827,17 +1827,6 @@ export function useDesktopState() {
     }
 
     try {
-      const requiresInitialResume = resumedThreadById.value[threadId] !== true
-      if (requiresInitialResume) {
-        const resumed = await resumeThreadWithRetry(threadId)
-        if (resumed) {
-          resumedThreadById.value = {
-            ...resumedThreadById.value,
-            [threadId]: true,
-          }
-        }
-      }
-
       const { messages: nextMessages, fileChanges, inProgress, activeTurnId } = await getThreadConversationData(threadId, {
         signal: options.signal,
       })
@@ -1895,7 +1884,7 @@ export function useDesktopState() {
       }
       markThreadAsRead(threadId)
 
-      if (requiresInitialResume && !allThreads.value.some((thread) => thread.id === threadId)) {
+      if (!allThreads.value.some((thread) => thread.id === threadId)) {
         await loadThreads()
       }
     } finally {
@@ -2022,6 +2011,14 @@ export function useDesktopState() {
     try {
       threadId = await startThread(targetCwd || undefined, selectedModel || undefined)
       if (!threadId) return ''
+
+      // thread/start returns a loaded thread that can accept turn/start
+      // immediately. Resuming it before its first turn is persisted makes
+      // paginated histories fail with "list_turns is not supported yet".
+      resumedThreadById.value = {
+        ...resumedThreadById.value,
+        [threadId]: true,
+      }
 
       addOptimisticThread(threadId, targetCwd, buildQueuedMessagePreviewText(normalizedPayload))
       setSelectedThreadId(threadId)

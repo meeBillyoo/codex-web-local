@@ -127,6 +127,25 @@ function setJson(res: ServerResponse, statusCode: number, payload: unknown): voi
   res.end(JSON.stringify(payload))
 }
 
+function logBridgeRequestError(
+  context: {
+    httpMethod: string
+    path: string
+    rpcMethod: string
+    threadId: string
+  },
+  error: unknown,
+): void {
+  console.error('[codex-web-local] bridge request failed', JSON.stringify({
+    atIso: new Date().toISOString(),
+    httpMethod: context.httpMethod || null,
+    path: context.path || null,
+    rpcMethod: context.rpcMethod || null,
+    threadId: context.threadId || null,
+    message: getErrorMessage(error, 'Unknown bridge error'),
+  }))
+}
+
 function normalizePreviewPath(rawPath: string): string {
   const trimmed = rawPath.trim()
   if (!trimmed) return ''
@@ -1808,6 +1827,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   const { appServer, methodCatalog } = getSharedBridgeState()
 
   const middleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    const requestContext = {
+      httpMethod: req.method ?? '',
+      path: '',
+      rpcMethod: '',
+      threadId: '',
+    }
+
     try {
       if (!req.url) {
         next()
@@ -1815,6 +1841,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+      requestContext.path = url.pathname
 
       if (req.method === 'POST' && url.pathname === '/codex-api/rpc') {
         const payload = await readJsonBody(req)
@@ -1825,6 +1852,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      requestContext.rpcMethod = body.method
+      requestContext.threadId = readPendingServerRequestThreadId(body.params ?? null)
       const result = await appServer.rpc(body.method, body.params ?? null)
       appServer.triggerSharedSessionSnapshotSync(readThreadIdFromRpcPayload(body.method, body.params ?? null, result))
       setJson(res, 200, { result })
@@ -2125,6 +2154,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       next()
     } catch (error) {
       const message = getErrorMessage(error, 'Unknown bridge error')
+      logBridgeRequestError(requestContext, error)
       setJson(res, 502, { error: message })
     }
   }
