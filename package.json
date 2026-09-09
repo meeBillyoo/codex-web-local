@@ -61,5 +61,10 @@
     "vue-tsc": "^3.3.11",
     "workbox-build": "^7.4.1",
     "workbox-window": "^7.4.1"
+  },
+  "overrides": {
+    "tsup": {
+      "esbuild": "0.28.2"
+    }
   }
 }

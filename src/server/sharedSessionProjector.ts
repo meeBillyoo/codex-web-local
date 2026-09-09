@@ -1,4 +1,4 @@
-import type { UiMessage, UiPersistedServerRequest, UiServerRequest } from '../types/codex'
+import type { UiMessage, UiPersistedServerRequest, UiServerRequest } from '../types/codex.ts'
 
 type SharedSessionOwner = 'web' | 'terminal'
 

@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import type { SharedSessionSnapshot } from './sharedSessionSnapshot'
+import type { SharedSessionSnapshot } from './sharedSessionSnapshot.ts'
 
 function isMissingFileError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT'

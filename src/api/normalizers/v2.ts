@@ -4,8 +4,8 @@ import type {
   ThreadReadResponse,
   ThreadListResponse,
   UserInput,
-} from '../appServerDtos'
-import type { UiChangedFile, UiMessage, UiProjectGroup, UiThread, UiTurnFileChanges } from '../../types/codex'
+} from '../appServerDtos.ts'
+import type { UiChangedFile, UiMessage, UiProjectGroup, UiThread, UiTurnFileChanges } from '../../types/codex.ts'
 
 function toIso(seconds: number): string {
   return new Date(seconds * 1000).toISOString()
