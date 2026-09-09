@@ -957,10 +957,21 @@ const renderableFilePreviewLines = computed<RenderableCodeLine[]>(() => {
   @apply text-[11px] text-[#ef4444] font-medium;
 }
 
+@media (max-width: 1100px) {
+  .content-code-preview-close {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .workspace-diff-mode-tab {
+    min-height: 2.75rem;
+  }
+}
+
 @media (max-width: 720px) {
   .content-code-preview {
-    min-height: min(58dvh, 34rem);
-    max-height: 68dvh;
+    min-height: min(58svh, 34rem);
+    max-height: min(68dvh, calc(var(--app-viewport-height) - 4rem));
     background: var(--color-bg-overlay);
     border-color: var(--color-border-default);
     box-shadow: 0 14px 36px color-mix(in srgb, var(--color-text-primary) 10%, transparent);

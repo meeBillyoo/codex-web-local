@@ -101,4 +101,18 @@ const sidebarToggleLabel = computed(() =>
 .sidebar-thread-controls-icon {
   @apply w-4 h-4;
 }
+
+@media (max-width: 1100px) {
+  .sidebar-thread-controls {
+    gap: 0.25rem;
+  }
+
+  .sidebar-thread-controls-button {
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    border-radius: 0.75rem;
+  }
+}
 </style>

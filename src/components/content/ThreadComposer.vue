@@ -1010,11 +1010,14 @@ watch(
 @reference "tailwindcss";
 
 .thread-composer {
-  @apply w-full max-w-175 mx-auto px-6;
+  @apply w-full max-w-175 mx-auto;
+  padding-inline: calc(1.5rem + var(--app-safe-area-left)) calc(1.5rem + var(--app-safe-area-right));
+  padding-bottom: var(--app-safe-area-bottom);
 }
 
 .thread-composer-shell {
   @apply rounded-2xl border border-zinc-300 bg-white p-3 shadow-sm;
+  padding-bottom: calc(0.75rem + var(--app-safe-area-bottom));
 }
 
 .thread-composer-input {
@@ -1541,9 +1544,26 @@ watch(
   @apply h-5 w-5;
 }
 
+@media (max-width: 1100px) {
+  .thread-composer-actions-trigger,
+  .thread-composer-submit,
+  .thread-composer-stop {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .thread-composer-control :deep(.composer-dropdown-trigger) {
+    min-height: 2.75rem;
+  }
+
+  .thread-composer-status-chip {
+    min-height: 2.75rem;
+  }
+}
+
 @media (max-width: 720px) {
   .thread-composer {
-    @apply px-3;
+    padding-inline: calc(0.75rem + var(--app-safe-area-left)) calc(0.75rem + var(--app-safe-area-right));
   }
 
   .thread-composer-input {
@@ -1693,6 +1713,20 @@ watch(
     height: 2.5rem;
     min-width: 2.5rem;
     flex: 0 0 2.5rem;
+  }
+
+  .thread-composer-actions-trigger,
+  .thread-composer-submit,
+  .thread-composer-stop,
+  .thread-composer-image-remove,
+  .thread-composer-branch-sheet-close {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .thread-composer-actions-trigger {
+    width: 2.75rem;
+    height: 2.75rem;
   }
 }
 </style>

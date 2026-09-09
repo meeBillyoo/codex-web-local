@@ -442,6 +442,13 @@ function onSubmit(): void {
   }
 }
 
+@media (max-width: 767px) {
+  .approval-submit-button,
+  .approval-skip-button {
+    min-height: 2.75rem;
+  }
+}
+
 @media (min-width: 640px) {
   .approval-actions {
     @apply flex-row items-center justify-between;

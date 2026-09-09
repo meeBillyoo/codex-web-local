@@ -29,6 +29,9 @@ test('PendingApprovalOverlay reuses ApprovalRequestCard for floating approvals',
   assert.match(overlay, /pending-approval-overlay/)
   assert.match(overlay, /<ApprovalRequestCard/)
   assert.match(overlay, /safe-area-inset-bottom/)
-  assert.match(overlay, /max-height:\s*min\(calc\(100vh - 8\.5rem - env\(safe-area-inset-bottom, 0px\)\), 42rem\)/)
+  assert.match(
+    overlay,
+    /max-height:\s*min\(calc\(var\(--app-visual-viewport-height, var\(--app-viewport-height\)\) - 8\.5rem - var\(--app-safe-area-bottom\)\), 42rem\)/,
+  )
   assert.match(overlay, /overflow-y:\s*auto/)
 })

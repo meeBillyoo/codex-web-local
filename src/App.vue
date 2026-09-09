@@ -1,16 +1,21 @@
 <template>
-  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed">
+  <DesktopLayout
+    :is-sidebar-collapsed="isSidebarCollapsed"
+    :is-mobile-sidebar-open="isMobileSidebarOpen"
+    :mobile-sidebar-close-label="t('sidebar.close')"
+    @close-mobile-sidebar="closeMobileSidebar"
+  >
     <template #sidebar>
       <section class="sidebar-root">
         <SidebarThreadControls
-          v-if="!isSidebarCollapsed"
+          v-if="!isSidebarCollapsed || isMobileSidebarOpen"
           class="sidebar-thread-controls-host"
           :is-sidebar-collapsed="isSidebarCollapsed"
           :is-auto-refresh-enabled="isAutoRefreshEnabled"
           :auto-refresh-button-label="autoRefreshButtonLabel"
           :ui-language="uiLanguage"
           :show-new-thread-button="true"
-          @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
+          @toggle-sidebar="onSidebarToggle"
           @toggle-auto-refresh="onToggleAutoRefreshTimer"
           @start-new-thread="onStartNewThreadFromToolbar"
         >
@@ -26,7 +31,7 @@
           </button>
         </SidebarThreadControls>
 
-        <div v-if="!isSidebarCollapsed && isSidebarSearchVisible" class="sidebar-search-bar">
+        <div v-if="(!isSidebarCollapsed || isMobileSidebarOpen) && isSidebarSearchVisible" class="sidebar-search-bar">
           <IconTablerSearch class="sidebar-search-bar-icon" />
           <input
             ref="sidebarSearchInputRef"
@@ -48,7 +53,7 @@
         </div>
 
         <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
-          v-if="!isSidebarCollapsed"
+          v-if="!isSidebarCollapsed || isMobileSidebarOpen"
           :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
           :search-query="sidebarSearchQuery"
           :shared-session-snapshot-by-thread-id="sharedSessionSnapshotByThreadId"
@@ -58,7 +63,7 @@
           @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-thread="onRenameThread" @rename-project="onRenameProject"
           @remove-project="onRemoveProject" @reorder-project="onReorderProject" />
 
-        <div v-if="!isSidebarCollapsed" class="sidebar-footer-actions">
+        <div v-if="!isSidebarCollapsed || isMobileSidebarOpen" class="sidebar-footer-actions">
           <button
             class="sidebar-footer-button"
             type="button"
@@ -77,6 +82,16 @@
           >
             <span class="sidebar-footer-language-mark">{{ languageToggleMark }}</span>
           </button>
+          <button
+            class="sidebar-footer-button"
+            type="button"
+            :aria-label="pwaUpdateButtonLabel"
+            :title="pwaUpdateButtonLabel"
+            :disabled="isCheckingForUpdate"
+            @click="onPwaUpdateAction"
+          >
+            <IconTablerRefresh class="sidebar-footer-button-icon" />
+          </button>
         </div>
       </section>
     </template>
@@ -86,14 +101,14 @@
         <ContentHeader :title="contentTitle">
           <template #leading>
             <SidebarThreadControls
-              v-if="isSidebarCollapsed"
+              v-if="isSidebarCollapsed || isPhoneViewport"
               class="sidebar-thread-controls-header-host"
-              :is-sidebar-collapsed="isSidebarCollapsed"
+              :is-sidebar-collapsed="isPhoneViewport ? true : isSidebarCollapsed"
               :is-auto-refresh-enabled="isAutoRefreshEnabled"
               :auto-refresh-button-label="autoRefreshButtonLabel"
               :ui-language="uiLanguage"
               :show-new-thread-button="true"
-              @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
+              @toggle-sidebar="onHeaderSidebarToggle"
               @toggle-auto-refresh="onToggleAutoRefreshTimer"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
@@ -114,6 +129,15 @@
         </ContentHeader>
 
         <section class="content-body">
+          <div
+            v-if="!isOnline || showOnlineRestored"
+            class="connectivity-banner"
+            :data-status="isOnline ? 'restored' : 'offline'"
+            role="status"
+            aria-live="polite"
+          >
+            {{ isOnline ? t('app.onlineRestored') : t('app.offlineNotice') }}
+          </div>
           <p v-if="error" class="content-error">{{ error }}</p>
           <template v-if="isHomeRoute">
             <div class="content-grid">
@@ -283,7 +307,11 @@ import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vu
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import IconThemeMode from './components/icons/IconThemeMode.vue'
+import IconTablerRefresh from './components/icons/IconTablerRefresh.vue'
 import { useDesktopState } from './composables/useDesktopState'
+import { useConnectivityStatus } from './composables/useConnectivityStatus'
+import { usePwaRuntime } from './composables/usePwaRuntime'
+import { useResponsiveLayout } from './composables/useResponsiveLayout'
 import { tUi, type UiLanguage, type UiTextKey } from './i18n/uiText'
 import type { ComposerSubmitPayload, ReasoningEffort, ThreadScrollState, UiTurnFileChanges, UiWorkspaceDiffMode } from './types/codex'
 import { fetchFilePreview } from './api/codexGateway'
@@ -368,6 +396,19 @@ const {
 
 const route = useRoute()
 const router = useRouter()
+const {
+  isPhoneViewport,
+  isMobileSidebarOpen,
+  closeMobileSidebar,
+  toggleMobileSidebar,
+} = useResponsiveLayout()
+const { isOnline, showOnlineRestored } = useConnectivityStatus()
+const {
+  isUpdateAvailable,
+  isCheckingForUpdate,
+  checkForUpdates,
+  applyUpdate,
+} = usePwaRuntime()
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
 const newThreadCwd = ref('')
@@ -434,6 +475,13 @@ const languageToggleLabel = computed(() =>
 )
 const languageToggleMark = computed(() =>
   uiLanguage.value === 'zh' ? '中' : 'EN',
+)
+const pwaUpdateButtonLabel = computed(() =>
+  isUpdateAvailable.value
+    ? t('app.updateAvailable')
+    : isCheckingForUpdate.value
+      ? t('app.checkingForUpdates')
+      : t('app.checkForUpdates'),
 )
 function normalizeActivityText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/gu, ' ')
@@ -565,6 +613,7 @@ function onSidebarSearchKeydown(event: KeyboardEvent): void {
 
 function onSelectThread(threadId: string): void {
   if (!threadId) return
+  closeMobileSidebar()
   if (route.name === 'thread' && routeThreadId.value === threadId) return
   void router.push({ name: 'thread', params: { threadId } })
 }
@@ -574,6 +623,7 @@ function onArchiveThread(threadId: string): void {
 }
 
 function onStartNewThread(projectName: string): void {
+  closeMobileSidebar()
   const projectGroup = projectGroups.value.find((group) => group.projectName === projectName)
   const projectCwd = projectGroup?.threads[0]?.cwd?.trim() ?? ''
   if (projectCwd) {
@@ -584,6 +634,7 @@ function onStartNewThread(projectName: string): void {
 }
 
 function onStartNewThreadFromToolbar(): void {
+  closeMobileSidebar()
   const cwd = selectedThread.value?.cwd?.trim() ?? ''
   if (cwd) {
     newThreadCwd.value = cwd
@@ -640,8 +691,38 @@ function setSidebarCollapsed(nextValue: boolean): void {
   saveSidebarCollapsed(nextValue)
 }
 
+function onSidebarToggle(): void {
+  if (isPhoneViewport.value) {
+    closeMobileSidebar()
+    return
+  }
+  setSidebarCollapsed(!isSidebarCollapsed.value)
+}
+
+function onHeaderSidebarToggle(): void {
+  if (isPhoneViewport.value) {
+    toggleMobileSidebar()
+    return
+  }
+  setSidebarCollapsed(!isSidebarCollapsed.value)
+}
+
+async function onPwaUpdateAction(): Promise<void> {
+  if (isUpdateAvailable.value) {
+    await applyUpdate()
+    return
+  }
+  await checkForUpdates()
+}
+
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
+
+  if (event.key === 'Escape' && isMobileSidebarOpen.value) {
+    event.preventDefault()
+    closeMobileSidebar()
+    return
+  }
 
   if (event.key.toLowerCase() === 't' && (event.metaKey || event.ctrlKey)) {
     event.preventDefault()
@@ -1062,7 +1143,8 @@ async function submitFirstMessageForNewThread(payload: ComposerSubmitPayload): P
 @reference "tailwindcss";
 
 .sidebar-root {
-  @apply min-h-full py-4 px-2 flex flex-col gap-2 select-none;
+  @apply min-h-full flex flex-col gap-2 select-none;
+  padding: calc(1rem + var(--app-safe-area-top)) calc(0.5rem + var(--app-safe-area-right)) calc(1rem + var(--app-safe-area-bottom)) calc(0.5rem + var(--app-safe-area-left));
 }
 
 .sidebar-root input,
@@ -1180,7 +1262,21 @@ async function submitFirstMessageForNewThread(payload: ComposerSubmitPayload): P
 }
 
 .content-body {
-  @apply flex-1 min-h-0 w-full flex flex-col gap-3 pt-1 pb-4 overflow-y-hidden overflow-x-visible;
+  @apply flex-1 min-h-0 w-full flex flex-col gap-3 pt-1 overflow-y-hidden overflow-x-visible;
+  padding-bottom: calc(1rem + var(--app-safe-area-bottom));
+}
+
+.connectivity-banner {
+  @apply mx-3 rounded-lg border px-3 py-2 text-xs leading-4;
+  border-color: var(--color-warning-text);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
+.connectivity-banner[data-status='restored'] {
+  border-color: var(--color-success-text);
+  background: var(--color-success-soft);
+  color: var(--color-success-text);
 }
 
 .content-error {
@@ -1317,6 +1413,28 @@ async function submitFirstMessageForNewThread(payload: ComposerSubmitPayload): P
 
 .new-thread-folder-dropdown :deep(.composer-dropdown-chevron) {
   @apply h-5 w-5 mt-0;
+}
+
+@media (max-width: 1100px) {
+  .content-header-diff-chip {
+    min-height: 2.75rem;
+  }
+
+  .sidebar-footer-button {
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    border-radius: 0.75rem;
+  }
+
+  .content-body {
+    gap: 0.5rem;
+  }
+
+  .connectivity-banner {
+    margin-inline: 0.75rem;
+  }
 }
 
 @media (max-width: 720px) {

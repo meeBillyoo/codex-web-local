@@ -72,6 +72,26 @@ const UI_TEXT = {
     zh: '关闭代码预览',
     en: 'Close code preview',
   },
+  'app.offlineNotice': {
+    zh: '当前处于离线状态，Codex 服务需要网络连接。',
+    en: 'You are offline. The Codex service requires a network connection.',
+  },
+  'app.onlineRestored': {
+    zh: '网络连接已恢复。',
+    en: 'Network connection restored.',
+  },
+  'app.checkForUpdates': {
+    zh: '检查应用更新',
+    en: 'Check for app updates',
+  },
+  'app.updateAvailable': {
+    zh: '应用有可用更新，点击应用',
+    en: 'App update available; click to apply',
+  },
+  'app.checkingForUpdates': {
+    zh: '正在检查更新...',
+    en: 'Checking for updates...',
+  },
   'app.queuedMessagesTitle': {
     zh: ({ count }) => `待发送 ${String(count)} 条`,
     en: ({ count }) => `${String(count)} queued`,
@@ -679,6 +699,10 @@ const UI_TEXT = {
   'sidebar.collapse': {
     zh: '收起侧边栏',
     en: 'Collapse sidebar',
+  },
+  'sidebar.close': {
+    zh: '关闭侧边栏',
+    en: 'Close sidebar',
   },
   'sidebar.startNewThread': {
     zh: '开始新会话',

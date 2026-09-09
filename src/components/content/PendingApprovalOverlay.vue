@@ -83,7 +83,7 @@ function onSkip(): void {
   }
 
   .pending-approval-overlay-card {
-    max-height: min(calc(100vh - 8.5rem - env(safe-area-inset-bottom, 0px)), 42rem);
+    max-height: min(calc(var(--app-visual-viewport-height, var(--app-viewport-height)) - 8.5rem - var(--app-safe-area-bottom)), 42rem);
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;

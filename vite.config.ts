@@ -12,8 +12,8 @@ export default defineConfig({
     vue(),
     tailwindcss(),
     VitePWA({
-      registerType: "autoUpdate",
-      injectRegister: "auto",
+      registerType: "prompt",
+      injectRegister: null,
       includeAssets: [
         "favicon.ico",
         "favicon.svg",
@@ -53,8 +53,8 @@ export default defineConfig({
       },
       workbox: {
         cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
+        clientsClaim: false,
+        skipWaiting: false,
         navigateFallback: null,
         runtimeCaching: [
           {

@@ -1,4 +1,4 @@
-Language: English | [简体中文](./README.zh-CN.md)
+Language: English | [Chinese README](./README.zh-CN.md)
 
 # `npx @leibnizhu/codex-web-local`
 
@@ -89,6 +89,9 @@ The CLI also checks npm for new versions automatically at startup (at most once 
 - `localhost` is treated as a secure context and can be used for local PWA installation.
 - Remote devices must access the service through HTTPS provided by Tailscale Serve, a reverse proxy, or another secure tunnel. Plain HTTP over a LAN or Tailscale IP does not provide full PWA support.
 - The Vite development server does not register the Service Worker. Use a production build or preview when validating PWA behavior.
+- iPhone and iPad layouts target iOS/iPadOS 16+, including safe-area insets, dynamic viewport sizing, touch-friendly controls, and portrait/landscape use.
+- Offline mode keeps the application shell visible and shows a connection notice; Codex API calls, authentication, and event streams remain network-only.
+- Service Worker updates are checked manually from the sidebar footer and are applied only after the user activates the update.
 
 ## UI Highlights
 
@@ -113,6 +116,7 @@ kill <PID>
 ## Documentation
 
 - Docs index: [docs/README.md](./docs/README.md)
+- Mobile PWA runtime notes: [docs/runtime/pwa-mobile.md](./docs/runtime/pwa-mobile.md)
 - Contracts guide: [docs/contracts/README.md](./docs/contracts/README.md)
 - Chinese app-server doc: [docs/contracts/APP_SERVER_DOCUMENTATION.zh-CN.md](./docs/contracts/APP_SERVER_DOCUMENTATION.zh-CN.md)
 

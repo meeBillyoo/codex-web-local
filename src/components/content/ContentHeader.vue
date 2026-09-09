@@ -20,7 +20,8 @@ defineProps<{
 @reference "tailwindcss";
 
 .content-header {
-  @apply relative z-10 w-full min-h-14 flex items-center gap-3 px-3 pt-4 pb-2 bg-white;
+  @apply relative z-10 w-full min-h-14 flex items-center gap-3 bg-white;
+  padding: calc(0.5rem + var(--app-safe-area-top)) calc(0.75rem + var(--app-safe-area-right)) 0.5rem calc(0.75rem + var(--app-safe-area-left));
 }
 
 .content-title {
@@ -33,5 +34,16 @@ defineProps<{
 
 .content-leading {
   @apply flex items-center gap-1;
+}
+
+@media (max-width: 767px) {
+  .content-header {
+    min-height: 3.75rem;
+    gap: 0.5rem;
+  }
+
+  .content-title {
+    @apply text-[13px];
+  }
 }
 </style>

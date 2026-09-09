@@ -804,7 +804,10 @@ onBeforeUnmount(() => {
 }
 
 .conversation-list {
-  @apply h-full min-h-0 list-none m-0 px-6 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-3;
+  @apply h-full min-h-0 list-none m-0 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-3;
+  padding-inline: calc(1.5rem + var(--app-safe-area-left)) calc(1.5rem + var(--app-safe-area-right));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .conversation-item {
@@ -927,6 +930,22 @@ onBeforeUnmount(() => {
 
 .request-button {
   @apply rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100 transition;
+}
+
+@media (max-width: 767px) {
+  .conversation-list {
+    padding-inline: calc(0.75rem + var(--app-safe-area-left)) calc(0.75rem + var(--app-safe-area-right));
+    gap: 0.75rem;
+  }
+
+  .request-actions,
+  .request-user-input {
+    width: 100%;
+  }
+
+  .request-button {
+    min-height: 2.75rem;
+  }
 }
 
 .request-button-primary {
