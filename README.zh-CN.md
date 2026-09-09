@@ -6,6 +6,7 @@
 
 ## 前置要求
 
+- Node.js 24.8.0 或更高版本（仓库内 `.nvmrc` 固定为 24.8.0）
 - 已安装 [Codex CLI](https://github.com/openai/codex)，并且可在 `PATH` 中访问
 
 ## 安装
@@ -27,7 +28,7 @@ Web interface for Codex app-server
 
 Options:
   -p, --port <port>    监听端口（默认: "3000"）
-  --host <host>        监听地址（例如: 127.0.0.1 / 0.0.0.0 / 100.x.x.x）
+  --host <host>        监听地址（默认: 127.0.0.1）
   -d, --daemon         后台运行（守护进程模式）
   --password <pass>    设置固定访问密码
   --no-password        关闭密码保护
@@ -55,7 +56,7 @@ codex-web-local --no-password
 # 后台启动（守护进程模式）
 codex-web-local --daemon
 
-# 指定监听地址（例如监听所有网卡）
+# 指定监听地址（例如监听所有网卡；仅建议配合认证使用）
 codex-web-local --host 0.0.0.0
 
 # Tailscale 场景 + 后台运行

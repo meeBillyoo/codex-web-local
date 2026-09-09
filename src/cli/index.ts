@@ -114,7 +114,7 @@ const program = new Command()
   .description('Web interface for Codex app-server')
   .version(CLI_VERSION)
   .option('-p, --port <port>', 'port to listen on', '3000')
-  .option('--host <host>', 'host to bind (e.g. 127.0.0.1, 0.0.0.0, 100.x.x.x)')
+  .option('--host <host>', 'host to bind (default: 127.0.0.1)')
   .option('-d, --daemon', 'run in background (daemon mode)')
   .option('--password <pass>', 'set a specific password')
   .option('--no-password', 'disable password protection')
@@ -122,7 +122,7 @@ const program = new Command()
 
 const opts = program.opts<{ port: string; host?: string; daemon?: boolean; password: string | boolean }>()
 const port = parseInt(opts.port, 10)
-const host = opts.host
+const host = opts.host ?? '127.0.0.1'
 
 function formatAccessUrl(bindHost: string | undefined, bindPort: number): string {
   if (!bindHost || bindHost === '0.0.0.0' || bindHost === '::') {

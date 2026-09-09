@@ -7,6 +7,7 @@
 - 业务流程/模块职责/行为约束：先看 [business/README.md](./business/README.md)
 - API 协议、消息结构、schema 维护：先看 [contracts/README.md](./contracts/README.md)
 - 多步骤改造、跨目录重构：先看 [plans/README.md](./plans/README.md)
+- 安全审计、风险边界与验证记录：先看 [security/](./security/)
 
 ## 分层原则
 - 运行问题优先看 `runtime/`。
@@ -28,3 +29,7 @@
 1. 读根目录 `AGENTS.md` 明确边界和验证门禁。
 2. 读本页选择任务入口。
 3. 执行任务前后对照 [runtime/agent-handoff.md](./runtime/agent-handoff.md) 检查交付完整性。
+
+## 安全审计
+
+- [2026-09-09 安全审计报告](./security/2026-09-09-security-audit.md)

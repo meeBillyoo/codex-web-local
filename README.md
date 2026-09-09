@@ -28,7 +28,7 @@ Web interface for Codex app-server
 
 Options:
   -p, --port <port>    port to listen on (default: "3000")
-  --host <host>        host to bind (e.g. 127.0.0.1 / 0.0.0.0 / 100.x.x.x)
+  --host <host>        host to bind (default: 127.0.0.1)
   -d, --daemon         run in background (daemon mode)
   --password <pass>    set a specific password
   --no-password        disable password protection
@@ -56,7 +56,7 @@ codex-web-local --no-password
 # Start in daemon mode (run in background)
 codex-web-local --daemon
 
-# Start with an explicit bind host (listen on all interfaces)
+# Start with an explicit bind host (listen on all interfaces; use only with authentication)
 codex-web-local --host 0.0.0.0
 
 # Tailscale setup in daemon mode (background)
