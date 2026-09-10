@@ -959,6 +959,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 class AppServerProcess {
   private process: ChildProcessWithoutNullStreams | null = null
   private initialized = false
+  private initializationPromise: Promise<void> | null = null
   private readBuffer = ''
   private nextId = 1
   private stopping = false
@@ -1489,14 +1490,28 @@ class AppServerProcess {
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return
 
-    await this.call('initialize', {
+    if (this.initializationPromise) {
+      await this.initializationPromise
+      return
+    }
+
+    const initialization = this.call('initialize', {
       clientInfo: {
         name: 'codex-web-local',
         version: '0.1.0',
       },
     })
+      .then(() => {
+        this.initialized = true
+      })
+      .finally(() => {
+        if (this.initializationPromise === initialization) {
+          this.initializationPromise = null
+        }
+      })
 
-    this.initialized = true
+    this.initializationPromise = initialization
+    await initialization
   }
 
   async rpc(method: string, params: unknown): Promise<unknown> {
@@ -1656,6 +1671,7 @@ class AppServerProcess {
     this.stopping = true
     this.process = null
     this.initialized = false
+    this.initializationPromise = null
     this.readBuffer = ''
 
     const failure = new Error('codex app-server stopped')

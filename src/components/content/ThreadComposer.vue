@@ -115,7 +115,7 @@
           menu-width="model"
           :show-option-icons="false"
           open-direction="up"
-          :disabled="disabled || !activeThreadId || models.length === 0"
+          :disabled="!activeThreadId || models.length === 0 || isTurnInProgress"
           @update:model-value="onModelSelect"
         />
 

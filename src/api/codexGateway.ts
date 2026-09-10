@@ -688,6 +688,12 @@ export async function archiveThread(threadId: string): Promise<void> {
   await callRpc('thread/archive', { threadId })
 }
 
+export async function deleteThread(threadId: string): Promise<void> {
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId) return
+  await callRpc('thread/delete', { threadId: normalizedThreadId })
+}
+
 export async function renameThread(threadId: string, title: string): Promise<void> {
   const normalizedThreadId = threadId.trim()
   const normalizedTitle = title.trim()

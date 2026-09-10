@@ -3,6 +3,7 @@ import {
   archiveThread,
   compactThreadContext,
   createAndSwitchWorkspaceBranch,
+  deleteThread,
   dismissPersistedServerRequests as dismissPersistedServerRequestsRequest,
   fetchWorkspaceChanges,
   fetchWorkspaceBranches,
@@ -12,6 +13,7 @@ import {
   getAccountRateLimitSnapshot,
   getCurrentModelConfig,
   getModelReasoningSupport,
+  getMethodCatalog,
   getPersistedServerRequests,
   getSharedSessionSnapshots,
   getThreadConversationData,
@@ -39,6 +41,7 @@ import type {
     UiMessage,
     UiPersistedServerRequest,
     UiProjectGroup,
+    UiProjectSourceFolders,
     UiSharedSessionSnapshot,
   UiServerRequest,
   UiServerRequestReply,
@@ -58,6 +61,7 @@ import {
   loadWorkspaceBaseBranchMap,
   loadProjectDisplayNames,
   loadProjectOrder,
+  loadProjectSourceFolders,
   loadRateLimitUsage,
   loadReadStateMap,
   loadSelectedThreadId,
@@ -68,6 +72,7 @@ import {
   saveWorkspaceBaseBranchMap,
   saveProjectDisplayNames,
   saveProjectOrder,
+  saveProjectSourceFolders,
   saveRateLimitUsage,
   saveReadStateMap,
   saveSelectedThreadId,
@@ -251,6 +256,8 @@ export function useDesktopState() {
   const scrollStateByThreadId = ref<Record<string, ThreadScrollState>>(loadThreadScrollStateMap())
   const projectOrder = ref<string[]>(loadProjectOrder())
   const projectDisplayNameById = ref<Record<string, string>>(loadProjectDisplayNames())
+  const projectSourceFoldersById = ref<Record<string, UiProjectSourceFolders>>(loadProjectSourceFolders())
+  const availableRpcMethods = ref<string[]>([])
   const loadedVersionByThreadId = ref<Record<string, string>>({})
   const loadedMessagesByThreadId = ref<Record<string, boolean>>({})
   const resumedThreadById = ref<Record<string, boolean>>({})
@@ -269,6 +276,7 @@ export function useDesktopState() {
   const workspaceBranchStateByCwd = ref<Record<string, UiWorkspaceBranchState>>({})
   const workspaceByCwd = ref<Record<string, WorkspaceModel>>({})
   const workspaceBaseBranchByCwd = ref<Record<string, string>>(loadWorkspaceBaseBranchMap())
+  const canDeleteThreads = computed(() => availableRpcMethods.value.includes('thread/delete'))
 
   const isLoadingThreads = ref(false)
   const isLoadingMessages = ref(false)
@@ -1225,6 +1233,73 @@ export function useDesktopState() {
     projectGroups.value = mergeThreadGroups(projectGroups.value, flaggedGroups)
   }
 
+  function syncProjectSourceFolders(groups: UiProjectGroup[]): void {
+    let changed = false
+    const next = { ...projectSourceFoldersById.value }
+
+    for (const group of groups) {
+      const threadFolders = Array.from(new Set(
+        group.threads
+          .map((thread) => thread.cwd.trim())
+          .filter(Boolean),
+      ))
+      const existing = next[group.projectName]
+      if (!existing) {
+        if (threadFolders.length > 0) {
+          next[group.projectName] = {
+            folders: threadFolders,
+            primaryCwd: threadFolders[0],
+          }
+          changed = true
+        }
+        continue
+      }
+
+      const folders = Array.from(new Set([...existing.folders, ...threadFolders]))
+      const primaryCwd = folders.includes(existing.primaryCwd) ? existing.primaryCwd : folders[0] ?? ''
+      if (folders.join('\n') !== existing.folders.join('\n') || primaryCwd !== existing.primaryCwd) {
+        next[group.projectName] = { folders, primaryCwd }
+        changed = true
+      }
+    }
+
+    if (!changed) return
+    projectSourceFoldersById.value = next
+    saveProjectSourceFolders(next)
+  }
+
+  function regroupThreadsBySourceFolders(groups: UiProjectGroup[]): UiProjectGroup[] {
+    const projectByCwd = new Map<string, string>()
+    for (const [projectName, config] of Object.entries(projectSourceFoldersById.value)) {
+      for (const folder of config.folders) {
+        const normalizedFolder = folder.trim()
+        if (normalizedFolder && !projectByCwd.has(normalizedFolder)) {
+          projectByCwd.set(normalizedFolder, projectName)
+        }
+      }
+    }
+
+    const grouped = new Map<string, UiThread[]>()
+    for (const group of groups) {
+      for (const thread of group.threads) {
+        const projectName = projectByCwd.get(thread.cwd.trim()) ?? group.projectName
+        const normalizedThread = projectName === thread.projectName
+          ? thread
+          : { ...thread, projectName }
+        const threads = grouped.get(projectName) ?? []
+        threads.push(normalizedThread)
+        grouped.set(projectName, threads)
+      }
+    }
+
+    return Array.from(grouped.entries()).map(([projectName, threads]) => ({
+      projectName,
+      threads: threads.sort(
+        (first, second) => new Date(second.updatedAtIso).getTime() - new Date(first.updatedAtIso).getTime(),
+      ),
+    }))
+  }
+
   function pruneThreadScopedState(flatThreads: UiThread[]): void {
     const activeThreadIds = new Set(flatThreads.map((thread) => thread.id))
     const nextReadState = pruneThreadStateMap(readStateByThreadId.value, activeThreadIds)
@@ -1723,7 +1798,7 @@ export function useDesktopState() {
       clearLiveReasoningForThread(notificationThreadId)
     }
 
-    if (notification.method === 'turn/completed') {
+    if (notification.method === 'turn/completed' || notification.method === 'turn/interrupted') {
       activeReasoningItemId = ''
       shouldAutoScrollOnNextAgentEvent = false
       clearLiveReasoningForThread(notificationThreadId)
@@ -1739,7 +1814,7 @@ export function useDesktopState() {
 
   function shouldQueueMessageRefresh(notification: RpcNotification): boolean {
     const method = notification.method
-    return method === 'turn/completed' || method === 'thread/compacted'
+    return method === 'turn/completed' || method === 'turn/interrupted' || method === 'thread/compacted'
   }
 
   function shouldQueueThreadListRefresh(method: string): boolean {
@@ -1774,7 +1849,9 @@ export function useDesktopState() {
     }
 
     try {
-      const groups = await getThreadGroups()
+      let groups = await getThreadGroups()
+      syncProjectSourceFolders(groups)
+      groups = regroupThreadsBySourceFolders(groups)
 
       const nextProjectOrder = mergeProjectOrder(projectOrder.value, groups)
       if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
@@ -1900,6 +1977,7 @@ export function useDesktopState() {
     try {
       await Promise.all([
         loadThreads(),
+        refreshRpcCapabilities(),
         refreshModelPreferences(),
         refreshRateLimitUsage({ force: true }),
         refreshSharedSessionSnapshots({ silent: true }),
@@ -1909,6 +1987,14 @@ export function useDesktopState() {
       await refreshSelectedWorkspaceDiffTotals()
     } catch (unknownError) {
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+    }
+  }
+
+  async function refreshRpcCapabilities(): Promise<void> {
+    try {
+      availableRpcMethods.value = await getMethodCatalog()
+    } catch {
+      availableRpcMethods.value = []
     }
   }
 
@@ -1951,6 +2037,19 @@ export function useDesktopState() {
         return
       }
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+    }
+  }
+
+  async function deleteThreadById(threadId: string): Promise<void> {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || !canDeleteThreads.value) return
+
+    try {
+      await deleteThread(normalizedThreadId)
+      await loadThreads()
+      await loadMessages(selectedThreadId.value)
+    } catch (unknownError) {
+      error.value = unknownError instanceof Error ? unknownError.message : 'Failed to delete thread'
     }
   }
 
@@ -2177,6 +2276,25 @@ export function useDesktopState() {
     saveProjectDisplayNames(projectDisplayNameById.value)
   }
 
+  function setProjectSourceFolders(projectName: string, folders: string[], primaryCwd: string): void {
+    const normalizedProjectName = projectName.trim()
+    const normalizedFolders = Array.from(new Set(folders.map((folder) => folder.trim()).filter(Boolean)))
+    if (!normalizedProjectName || normalizedFolders.length === 0) return
+
+    const normalizedPrimaryCwd = normalizedFolders.includes(primaryCwd.trim())
+      ? primaryCwd.trim()
+      : normalizedFolders[0]
+    const next = {
+      ...projectSourceFoldersById.value,
+      [normalizedProjectName]: {
+        folders: normalizedFolders,
+        primaryCwd: normalizedPrimaryCwd,
+      },
+    }
+    projectSourceFoldersById.value = next
+    saveProjectSourceFolders(next)
+  }
+
   function removeProject(projectName: string): void {
     if (projectName.length === 0) return
 
@@ -2193,6 +2311,12 @@ export function useDesktopState() {
       delete nextDisplayNames[projectName]
       projectDisplayNameById.value = nextDisplayNames
       saveProjectDisplayNames(nextDisplayNames)
+    }
+    if (projectSourceFoldersById.value[projectName] !== undefined) {
+      const nextSourceFolders = { ...projectSourceFoldersById.value }
+      delete nextSourceFolders[projectName]
+      projectSourceFoldersById.value = nextSourceFolders
+      saveProjectSourceFolders(nextSourceFolders)
     }
 
     applyThreadFlags()
@@ -2461,6 +2585,8 @@ export function useDesktopState() {
   return {
     projectGroups,
     projectDisplayNameById,
+    projectSourceFoldersById,
+    canDeleteThreads,
     selectedThread,
     selectedThreadScrollState,
     selectedThreadServerRequests,
@@ -2498,6 +2624,7 @@ export function useDesktopState() {
     selectThread,
     setThreadScrollState,
     archiveThreadById,
+    deleteThreadById,
     renameThreadById,
     sendMessageToSelectedThread,
     sendMessageToNewThread,
@@ -2523,6 +2650,7 @@ export function useDesktopState() {
     dismissPersistedServerRequests,
     refreshSharedSessionSnapshots,
     renameProject,
+    setProjectSourceFolders,
     removeProject,
     reorderProject,
     toggleAutoRefreshTimer,

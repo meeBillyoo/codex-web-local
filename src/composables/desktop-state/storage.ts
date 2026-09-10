@@ -1,10 +1,18 @@
-import type { ThreadScrollState, UiChangedFile, UiRateLimitUsage, UiThreadContextUsage, UiTurnFileChanges } from '../../types/codex'
+import type {
+  ThreadScrollState,
+  UiChangedFile,
+  UiProjectSourceFolders,
+  UiRateLimitUsage,
+  UiThreadContextUsage,
+  UiTurnFileChanges,
+} from '../../types/codex'
 
 const READ_STATE_STORAGE_KEY = 'codex-web-local.thread-read-state.v1'
 const SCROLL_STATE_STORAGE_KEY = 'codex-web-local.thread-scroll-state.v1'
 const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
+const PROJECT_SOURCE_FOLDERS_STORAGE_KEY = 'codex-web-local.project-source-folders.v1'
 const AUTO_REFRESH_ENABLED_STORAGE_KEY = 'codex-web-local.auto-refresh-enabled.v1'
 const CONTEXT_USAGE_STORAGE_KEY = 'codex-web-local.thread-context-usage.v2'
 const FILE_CHANGES_STORAGE_KEY = 'codex-web-local.thread-file-changes.v2'
@@ -353,6 +361,50 @@ export function loadProjectDisplayNames(): Record<string, string> {
 export function saveProjectDisplayNames(displayNames: Record<string, string>): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(PROJECT_DISPLAY_NAME_STORAGE_KEY, JSON.stringify(displayNames))
+}
+
+function normalizeProjectSourceFolders(value: unknown): UiProjectSourceFolders | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  const folders = Array.isArray(row.folders)
+    ? Array.from(new Set(
+      row.folders
+        .filter((folder): folder is string => typeof folder === 'string')
+        .map((folder) => folder.trim())
+        .filter(Boolean),
+    ))
+    : []
+  if (folders.length === 0) return null
+  const primaryCwd = typeof row.primaryCwd === 'string' && folders.includes(row.primaryCwd.trim())
+    ? row.primaryCwd.trim()
+    : folders[0]
+  return { folders, primaryCwd }
+}
+
+export function loadProjectSourceFolders(): Record<string, UiProjectSourceFolders> {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    const raw = window.localStorage.getItem(PROJECT_SOURCE_FOLDERS_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    const normalized: Record<string, UiProjectSourceFolders> = {}
+    for (const [projectName, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!projectName.trim()) continue
+      const folders = normalizeProjectSourceFolders(value)
+      if (folders) normalized[projectName] = folders
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+export function saveProjectSourceFolders(state: Record<string, UiProjectSourceFolders>): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(PROJECT_SOURCE_FOLDERS_STORAGE_KEY, JSON.stringify(state))
 }
 
 export function loadThreadContextUsageMap(): Record<string, UiThreadContextUsage> {

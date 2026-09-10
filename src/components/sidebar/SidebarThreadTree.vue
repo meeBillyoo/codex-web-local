@@ -7,7 +7,7 @@
             as="div"
             class="thread-row"
             :data-active="selectedThreadId === thread.id"
-            :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode === 'rename'"
+            :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode !== 'actions'"
           >
             <template #left>
               <span class="thread-left-stack">
@@ -46,6 +46,23 @@
                     <template v-if="threadMenuMode === 'actions'">
                       <button class="thread-menu-item" type="button" @click="openRenameThreadMenu(thread.id)">
                         {{ t('sidebarTree.editName') }}
+                      </button>
+                      <button
+                        v-if="canDeleteThreads"
+                        class="thread-menu-item thread-menu-item-danger"
+                        type="button"
+                        @click="openDeleteThreadMenu(thread.id)"
+                      >
+                        {{ t('sidebarTree.deleteThread') }}
+                      </button>
+                    </template>
+                    <template v-else-if="threadMenuMode === 'delete'">
+                      <button
+                        class="thread-menu-item thread-menu-item-danger"
+                        type="button"
+                        @click="onThreadDeleteSubmit(thread.id)"
+                      >
+                        {{ t('sidebarTree.deleteThreadConfirm') }}
                       </button>
                     </template>
                     <template v-else>
@@ -105,6 +122,7 @@
         class="project-group"
         :data-project-name="group.projectName"
         :data-expanded="!isCollapsed(group.projectName)"
+        :data-menu-open="isProjectMenuOpen(group.projectName)"
         :data-dragging="isDraggingProject(group.projectName)"
         :style="projectGroupStyle(group.projectName)"
       >
@@ -149,15 +167,35 @@
                     <IconTablerDots class="thread-icon" />
                   </button>
 
-                  <div v-if="isProjectMenuOpen(group.projectName)" class="project-menu-panel" @click.stop>
+                  <div
+                    v-if="isProjectMenuOpen(group.projectName)"
+                    class="project-menu-panel"
+                    @pointerdown.stop
+                    @mousedown.stop
+                    @click.stop
+                  >
                     <template v-if="projectMenuMode === 'actions'">
-                      <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group.projectName)">
+                      <button
+                        class="project-menu-item"
+                        type="button"
+                        @pointerdown.stop
+                        @click.stop.prevent="openRenameProjectMenu(group.projectName)"
+                      >
                         {{ t('sidebarTree.editName') }}
+                      </button>
+                      <button
+                        class="project-menu-item"
+                        type="button"
+                        @pointerdown.stop
+                        @click.stop.prevent="openSourceFoldersDialog(group.projectName)"
+                      >
+                        {{ t('sidebarTree.editSourceFolders') }}
                       </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
                         type="button"
-                        @click="onRemoveProject(group.projectName)"
+                        @pointerdown.stop
+                        @click.stop.prevent="onRemoveProject(group.projectName)"
                       >
                         {{ t('sidebarTree.remove') }}
                       </button>
@@ -193,7 +231,7 @@
             as="div"
             class="thread-row"
             :data-active="selectedThreadId === thread.id"
-            :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode === 'rename'"
+            :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode !== 'actions'"
           >
                 <template #left>
                   <span class="thread-left-stack">
@@ -236,6 +274,23 @@
                         <template v-if="threadMenuMode === 'actions'">
                           <button class="thread-menu-item" type="button" @click="openRenameThreadMenu(thread.id)">
                             {{ t('sidebarTree.editName') }}
+                          </button>
+                          <button
+                            v-if="canDeleteThreads"
+                            class="thread-menu-item thread-menu-item-danger"
+                            type="button"
+                            @click="openDeleteThreadMenu(thread.id)"
+                          >
+                            {{ t('sidebarTree.deleteThread') }}
+                          </button>
+                        </template>
+                        <template v-else-if="threadMenuMode === 'delete'">
+                          <button
+                            class="thread-menu-item thread-menu-item-danger"
+                            type="button"
+                            @click="onThreadDeleteSubmit(thread.id)"
+                          >
+                            {{ t('sidebarTree.deleteThreadConfirm') }}
                           </button>
                         </template>
                         <template v-else>
@@ -295,6 +350,15 @@
           </SidebarMenuRow>
       </article>
     </div>
+    <ProjectSourceFoldersDialog
+      :open="sourceFoldersDialogProjectName.length > 0"
+      :project-name="sourceFoldersDialogProjectName"
+      :folders="sourceFoldersDialogFolders"
+      :primary-cwd="sourceFoldersDialogPrimaryCwd"
+      :ui-language="uiLanguage"
+      @close="closeSourceFoldersDialog"
+      @save="onSourceFoldersSave"
+    />
   </section>
 </template>
 
@@ -313,6 +377,7 @@ import IconTablerFolder from '../icons/IconTablerFolder.vue'
 import IconTablerFolderOpen from '../icons/IconTablerFolderOpen.vue'
 import IconTablerPin from '../icons/IconTablerPin.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
+import ProjectSourceFoldersDialog from './ProjectSourceFoldersDialog.vue'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 
 const vFocus = {
@@ -322,6 +387,8 @@ const vFocus = {
 const props = defineProps<{
   groups: UiProjectGroup[]
   projectDisplayNameById: Record<string, string>
+  projectSourceFoldersById: Record<string, { folders: string[]; primaryCwd: string }>
+  canDeleteThreads: boolean
   selectedThreadId: string
   isLoading: boolean
   searchQuery: string
@@ -333,9 +400,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [threadId: string]
   archive: [threadId: string]
+  delete: [threadId: string]
   'start-new-thread': [projectName: string]
   'rename-project': [payload: { projectName: string; displayName: string }]
   'rename-thread': [payload: { threadId: string; title: string }]
+  'save-source-folders': [payload: { projectName: string; folders: string[]; primaryCwd: string }]
   'remove-project': [projectName: string]
   'reorder-project': [payload: { projectName: string; toIndex: number }]
 }>()
@@ -381,8 +450,9 @@ const projectRenameDraft = ref('')
 const groupsContainerRef = ref<HTMLElement | null>(null)
 const activeProjectDrag = ref<ActiveProjectDrag | null>(null)
 const openThreadMenuId = ref('')
-const threadMenuMode = ref<'actions' | 'rename'>('actions')
+const threadMenuMode = ref<'actions' | 'rename' | 'delete'>('actions')
 const threadRenameDraft = ref('')
+const sourceFoldersDialogProjectName = ref('')
 const threadMenuWrapElementById = new Map<string, HTMLElement>()
 const pendingProjectDrag = ref<PendingProjectDrag | null>(null)
 let pendingDragPointerSample: DragPointerSample | null = null
@@ -594,6 +664,43 @@ function getProjectDisplayName(projectName: string): string {
   return props.projectDisplayNameById[projectName] ?? projectName
 }
 
+function getProjectSourceFolders(projectName: string): string[] {
+  const configured = props.projectSourceFoldersById[projectName]
+  if (configured?.folders.length) return configured.folders
+  const group = props.groups.find((item) => item.projectName === projectName)
+  return Array.from(new Set(group?.threads.map((thread) => thread.cwd.trim()).filter(Boolean) ?? []))
+}
+
+function getProjectPrimaryCwd(projectName: string): string {
+  const configured = props.projectSourceFoldersById[projectName]
+  if (configured?.primaryCwd) return configured.primaryCwd
+  return getProjectSourceFolders(projectName)[0] ?? ''
+}
+
+const sourceFoldersDialogFolders = computed(() =>
+  getProjectSourceFolders(sourceFoldersDialogProjectName.value),
+)
+const sourceFoldersDialogPrimaryCwd = computed(() =>
+  getProjectPrimaryCwd(sourceFoldersDialogProjectName.value),
+)
+
+function openSourceFoldersDialog(projectName: string): void {
+  closeProjectMenu()
+  sourceFoldersDialogProjectName.value = projectName
+}
+
+function closeSourceFoldersDialog(): void {
+  sourceFoldersDialogProjectName.value = ''
+}
+
+function onSourceFoldersSave(payload: { folders: string[]; primaryCwd: string }): void {
+  emit('save-source-folders', {
+    projectName: sourceFoldersDialogProjectName.value,
+    ...payload,
+  })
+  closeSourceFoldersDialog()
+}
+
 function isProjectMenuOpen(projectName: string): boolean {
   return openProjectMenuId.value === projectName
 }
@@ -661,6 +768,16 @@ function openRenameThreadMenu(threadId: string): void {
   threadMenuMode.value = 'rename'
   const thread = threadById.value.get(threadId)
   threadRenameDraft.value = thread?.title ?? ''
+}
+
+function openDeleteThreadMenu(threadId: string): void {
+  openThreadMenuId.value = threadId
+  threadMenuMode.value = 'delete'
+}
+
+function onThreadDeleteSubmit(threadId: string): void {
+  emit('delete', threadId)
+  closeThreadMenu()
 }
 
 function onThreadRenameSubmit(threadId: string): void {
@@ -1041,6 +1158,7 @@ function projectGroupStyle(projectName: string): Record<string, string> | undefi
       top: '0',
       left: '0',
       right: '0',
+      zIndex: isProjectMenuOpen(projectName) ? '40' : 'auto',
       transform: `translate3d(0, ${targetTop}px, 0)`,
       willChange: 'transform',
       transition: 'transform 180ms ease',
@@ -1223,7 +1341,7 @@ onBeforeUnmount(() => {
 }
 
 .project-menu-wrap {
-  @apply relative;
+  @apply relative z-10;
 }
 
 .project-hover-controls {
@@ -1236,7 +1354,7 @@ onBeforeUnmount(() => {
 }
 
 .project-menu-panel {
-  @apply absolute right-0 top-full mt-1 z-20 min-w-36 rounded-md border p-1 shadow-md flex flex-col gap-0.5;
+  @apply pointer-events-auto absolute right-0 top-full mt-1 z-50 min-w-36 rounded-md border p-1 shadow-md flex flex-col gap-0.5;
   border-color: var(--color-border-default);
   background: var(--color-bg-elevated);
 }
@@ -1296,6 +1414,10 @@ onBeforeUnmount(() => {
 
 .thread-menu-item:hover {
   background: var(--color-bg-subtle);
+}
+
+.thread-menu-item-danger {
+  @apply text-rose-700 hover:bg-rose-50;
 }
 
 .thread-menu-label {

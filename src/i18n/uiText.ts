@@ -724,6 +724,50 @@ const UI_TEXT = {
     zh: '重命名',
     en: 'Rename',
   },
+  'sidebarTree.editSourceFolders': {
+    zh: '编辑源文件夹',
+    en: 'Edit source folders',
+  },
+  'sidebarTree.sourceFoldersTitle': {
+    zh: ({ projectName }) => `编辑 ${String(projectName)} 的源文件夹`,
+    en: ({ projectName }) => `Edit source folders for ${String(projectName)}`,
+  },
+  'sidebarTree.sourceFoldersDescription': {
+    zh: '源文件夹用于将多个工作目录归入同一个项目。选择一个主要工作目录用于新会话。',
+    en: 'Source folders group multiple working directories into one project. Choose a primary folder for new threads.',
+  },
+  'sidebarTree.sourceFolderPlaceholder': {
+    zh: '/path/to/folder',
+    en: '/path/to/folder',
+  },
+  'sidebarTree.addSourceFolder': {
+    zh: '添加文件夹',
+    en: 'Add folder',
+  },
+  'sidebarTree.removeSourceFolder': {
+    zh: '移除文件夹',
+    en: 'Remove folder',
+  },
+  'sidebarTree.primarySourceFolder': {
+    zh: '主要工作目录',
+    en: 'Primary working directory',
+  },
+  'sidebarTree.cancel': {
+    zh: '取消',
+    en: 'Cancel',
+  },
+  'sidebarTree.save': {
+    zh: '保存',
+    en: 'Save',
+  },
+  'sidebarTree.deleteThread': {
+    zh: '永久删除',
+    en: 'Delete permanently',
+  },
+  'sidebarTree.deleteThreadConfirm': {
+    zh: '再次点击以永久删除',
+    en: 'Click again to permanently delete',
+  },
   'sidebarTree.remove': {
     zh: '移除',
     en: 'Remove',

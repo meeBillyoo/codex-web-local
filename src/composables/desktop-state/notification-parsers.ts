@@ -286,7 +286,7 @@ export function readTurnStartedInfo(notification: RpcNotification): TurnStartedI
 }
 
 export function readTurnCompletedInfo(notification: RpcNotification): TurnCompletedInfo | null {
-  if (notification.method !== 'turn/completed') {
+  if (notification.method !== 'turn/completed' && notification.method !== 'turn/interrupted') {
     return null
   }
 

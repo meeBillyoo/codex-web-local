@@ -235,6 +235,11 @@ export type UiProjectGroup = {
   threads: UiThread[]
 }
 
+export type UiProjectSourceFolders = {
+  folders: string[]
+  primaryCwd: string
+}
+
 export type UiChangedFile = {
   path: string
   additions: number

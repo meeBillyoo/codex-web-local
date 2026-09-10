@@ -53,6 +53,7 @@
         </div>
 
         <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
+          :project-source-folders-by-id="projectSourceFoldersById" :can-delete-threads="canDeleteThreads"
           v-if="!isSidebarCollapsed || isMobileSidebarOpen"
           :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
           :search-query="sidebarSearchQuery"
@@ -60,7 +61,8 @@
           :live-approval-thread-id-set="liveApprovalThreadIdSet"
           :ui-language="uiLanguage"
           @select="onSelectThread"
-          @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-thread="onRenameThread" @rename-project="onRenameProject"
+          @archive="onArchiveThread" @delete="onDeleteThread" @start-new-thread="onStartNewThread" @rename-thread="onRenameThread" @rename-project="onRenameProject"
+          @save-source-folders="onSaveSourceFolders"
           @remove-project="onRemoveProject" @reorder-project="onReorderProject" />
 
         <div v-if="!isSidebarCollapsed || isMobileSidebarOpen" class="sidebar-footer-actions">
@@ -331,6 +333,8 @@ type ThemeMode = 'light' | 'dark' | 'auto'
 const {
   projectGroups,
   projectDisplayNameById,
+  projectSourceFoldersById,
+  canDeleteThreads,
   selectedThread,
   selectedThreadScrollState,
   selectedThreadServerRequests,
@@ -365,6 +369,7 @@ const {
   selectThread,
   setThreadScrollState,
   archiveThreadById,
+  deleteThreadById,
   renameThreadById,
   sendMessageToSelectedThread,
   sendMessageToNewThread,
@@ -387,6 +392,7 @@ const {
   respondToPendingServerRequest,
   dismissPersistedServerRequests,
   renameProject,
+  setProjectSourceFolders,
   removeProject,
   reorderProject,
   toggleAutoRefreshTimer,
@@ -625,7 +631,9 @@ function onArchiveThread(threadId: string): void {
 function onStartNewThread(projectName: string): void {
   closeMobileSidebar()
   const projectGroup = projectGroups.value.find((group) => group.projectName === projectName)
-  const projectCwd = projectGroup?.threads[0]?.cwd?.trim() ?? ''
+  const projectCwd = projectSourceFoldersById.value[projectName]?.primaryCwd?.trim()
+    || projectGroup?.threads[0]?.cwd?.trim()
+    || ''
   if (projectCwd) {
     newThreadCwd.value = projectCwd
   }
@@ -647,8 +655,16 @@ function onRenameThread(payload: { threadId: string; title: string }): void {
   void renameThreadById(payload.threadId, payload.title)
 }
 
+function onDeleteThread(threadId: string): void {
+  void deleteThreadById(threadId)
+}
+
 function onRenameProject(payload: { projectName: string; displayName: string }): void {
   renameProject(payload.projectName, payload.displayName)
+}
+
+function onSaveSourceFolders(payload: { projectName: string; folders: string[]; primaryCwd: string }): void {
+  setProjectSourceFolders(payload.projectName, payload.folders, payload.primaryCwd)
 }
 
 function onRemoveProject(projectName: string): void {
