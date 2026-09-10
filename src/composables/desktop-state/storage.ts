@@ -6,6 +6,7 @@ import type {
   UiThreadContextUsage,
   UiTurnFileChanges,
 } from '../../types/codex'
+import { collapsePathSegments } from '../../utils/pathUtils'
 
 const READ_STATE_STORAGE_KEY = 'codex-web-local.thread-read-state.v1'
 const SCROLL_STATE_STORAGE_KEY = 'codex-web-local.thread-scroll-state.v1'
@@ -370,13 +371,16 @@ function normalizeProjectSourceFolders(value: unknown): UiProjectSourceFolders |
     ? Array.from(new Set(
       row.folders
         .filter((folder): folder is string => typeof folder === 'string')
-        .map((folder) => folder.trim())
+        .map((folder) => collapsePathSegments(folder))
         .filter(Boolean),
     ))
     : []
   if (folders.length === 0) return null
-  const primaryCwd = typeof row.primaryCwd === 'string' && folders.includes(row.primaryCwd.trim())
-    ? row.primaryCwd.trim()
+  const normalizedPrimaryCwd = typeof row.primaryCwd === 'string'
+    ? collapsePathSegments(row.primaryCwd)
+    : ''
+  const primaryCwd = folders.includes(normalizedPrimaryCwd)
+    ? normalizedPrimaryCwd
     : folders[0]
   return { folders, primaryCwd }
 }

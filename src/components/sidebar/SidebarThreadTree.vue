@@ -7,12 +7,19 @@
             as="div"
             class="thread-row"
             :data-active="selectedThreadId === thread.id"
+            :data-pinned="isPinned(thread.id)"
+            :data-menu-open="isThreadMenuOpen(thread.id)"
             :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode !== 'actions'"
           >
             <template #left>
               <span class="thread-left-stack">
                 <span v-if="thread.inProgress || thread.unread" class="thread-status-indicator" :data-state="getThreadState(thread)" />
-                <button class="thread-pin-button" type="button" :title="t('sidebarTree.pin')" @click="togglePin(thread.id)">
+                <button
+                  class="thread-pin-button"
+                  type="button"
+                  :title="isPinned(thread.id) ? t('sidebarTree.unpin') : t('sidebarTree.pin')"
+                  @click.stop="togglePin(thread.id)"
+                >
                   <IconTablerPin class="thread-icon" />
                 </button>
               </span>
@@ -36,33 +43,44 @@
                   <button
                     class="thread-menu-trigger"
                     type="button"
-                    :title="t('sidebarTree.projectMenu')"
+                    :title="t('sidebarTree.threadMenu')"
                     @click.stop="toggleThreadMenu(thread.id)"
                   >
                     <IconTablerDots class="thread-icon" />
                   </button>
 
-                  <div v-if="isThreadMenuOpen(thread.id)" class="thread-menu-panel" @click.stop>
+                  <div
+                    v-if="isThreadMenuOpen(thread.id)"
+                    class="thread-menu-panel"
+                    @pointerdown.stop
+                    @mousedown.stop
+                    @click.stop
+                  >
                     <template v-if="threadMenuMode === 'actions'">
-                      <button class="thread-menu-item" type="button" @click="openRenameThreadMenu(thread.id)">
+                      <button
+                        class="thread-menu-item"
+                        type="button"
+                        @pointerdown.stop
+                        @click.stop.prevent="openRenameThreadMenu(thread.id)"
+                      >
                         {{ t('sidebarTree.editName') }}
+                      </button>
+                      <button
+                        class="thread-menu-item"
+                        type="button"
+                        @pointerdown.stop
+                        @click.stop.prevent="openArchiveConfirmation(thread.id)"
+                      >
+                        {{ t('sidebarTree.archiveThread') }}
                       </button>
                       <button
                         v-if="canDeleteThreads"
                         class="thread-menu-item thread-menu-item-danger"
                         type="button"
-                        @click="openDeleteThreadMenu(thread.id)"
+                        @pointerdown.stop
+                        @click.stop.prevent="openDeleteConfirmation(thread.id)"
                       >
                         {{ t('sidebarTree.deleteThread') }}
-                      </button>
-                    </template>
-                    <template v-else-if="threadMenuMode === 'delete'">
-                      <button
-                        class="thread-menu-item thread-menu-item-danger"
-                        type="button"
-                        @click="onThreadDeleteSubmit(thread.id)"
-                      >
-                        {{ t('sidebarTree.deleteThreadConfirm') }}
                       </button>
                     </template>
                     <template v-else>
@@ -77,10 +95,10 @@
                           @keydown.esc="closeThreadMenu"
                         />
                         <div class="thread-rename-actions">
-                          <button class="thread-rename-action-btn confirm" type="button" @click="onThreadRenameSubmit(thread.id)">
+                          <button class="thread-rename-action-btn confirm" type="button" @click.stop.prevent="onThreadRenameSubmit(thread.id)">
                             <IconTablerCheck />
                           </button>
-                          <button class="thread-rename-action-btn cancel" type="button" @click="closeThreadMenu">
+                          <button class="thread-rename-action-btn cancel" type="button" @click.stop.prevent="closeThreadMenu">
                             <IconTablerX />
                           </button>
                         </div>
@@ -91,13 +109,12 @@
 
                 <button
                   class="thread-archive-button"
-                  :data-confirm="archiveConfirmThreadId === thread.id"
                   type="button"
+                  :aria-label="t('sidebarTree.archiveThread')"
                   :title="t('sidebarTree.archiveThread')"
-                  @click="onArchiveClick(thread.id)"
+                  @click.stop="openArchiveConfirmation(thread.id)"
                 >
-                  <span v-if="archiveConfirmThreadId === thread.id">{{ t('sidebarTree.confirm') }}</span>
-                  <IconTablerArchive v-else class="thread-icon" />
+                  <IconTablerArchive class="thread-icon" />
                 </button>
               </div>
             </template>
@@ -132,6 +149,7 @@
             :force-right-hover="isProjectMenuOpen(group.projectName)"
             role="button"
             tabindex="0"
+            :aria-expanded="!isCollapsed(group.projectName)"
             @click="toggleProjectCollapse(group.projectName)"
             @keydown.enter.prevent="toggleProjectCollapse(group.projectName)"
             @keydown.space.prevent="toggleProjectCollapse(group.projectName)"
@@ -231,6 +249,8 @@
             as="div"
             class="thread-row"
             :data-active="selectedThreadId === thread.id"
+            :data-pinned="isPinned(thread.id)"
+            :data-menu-open="isThreadMenuOpen(thread.id)"
             :force-right-hover="isThreadMenuOpen(thread.id) && threadMenuMode !== 'actions'"
           >
                 <template #left>
@@ -240,7 +260,12 @@
                       class="thread-status-indicator"
                       :data-state="getThreadState(thread)"
                     />
-                    <button class="thread-pin-button" type="button" :title="t('sidebarTree.pin')" @click="togglePin(thread.id)">
+                    <button
+                      class="thread-pin-button"
+                      type="button"
+                      :title="isPinned(thread.id) ? t('sidebarTree.unpin') : t('sidebarTree.pin')"
+                      @click.stop="togglePin(thread.id)"
+                    >
                       <IconTablerPin class="thread-icon" />
                     </button>
                   </span>
@@ -264,33 +289,44 @@
                       <button
                         class="thread-menu-trigger"
                         type="button"
-                        :title="t('sidebarTree.projectMenu')"
+                        :title="t('sidebarTree.threadMenu')"
                         @click.stop="toggleThreadMenu(thread.id)"
                       >
                         <IconTablerDots class="thread-icon" />
                       </button>
 
-                      <div v-if="isThreadMenuOpen(thread.id)" class="thread-menu-panel" @click.stop>
+                      <div
+                        v-if="isThreadMenuOpen(thread.id)"
+                        class="thread-menu-panel"
+                        @pointerdown.stop
+                        @mousedown.stop
+                        @click.stop
+                      >
                         <template v-if="threadMenuMode === 'actions'">
-                          <button class="thread-menu-item" type="button" @click="openRenameThreadMenu(thread.id)">
+                          <button
+                            class="thread-menu-item"
+                            type="button"
+                            @pointerdown.stop
+                            @click.stop.prevent="openRenameThreadMenu(thread.id)"
+                          >
                             {{ t('sidebarTree.editName') }}
+                          </button>
+                          <button
+                            class="thread-menu-item"
+                            type="button"
+                            @pointerdown.stop
+                            @click.stop.prevent="openArchiveConfirmation(thread.id)"
+                          >
+                            {{ t('sidebarTree.archiveThread') }}
                           </button>
                           <button
                             v-if="canDeleteThreads"
                             class="thread-menu-item thread-menu-item-danger"
                             type="button"
-                            @click="openDeleteThreadMenu(thread.id)"
+                            @pointerdown.stop
+                            @click.stop.prevent="openDeleteConfirmation(thread.id)"
                           >
                             {{ t('sidebarTree.deleteThread') }}
-                          </button>
-                        </template>
-                        <template v-else-if="threadMenuMode === 'delete'">
-                          <button
-                            class="thread-menu-item thread-menu-item-danger"
-                            type="button"
-                            @click="onThreadDeleteSubmit(thread.id)"
-                          >
-                            {{ t('sidebarTree.deleteThreadConfirm') }}
                           </button>
                         </template>
                         <template v-else>
@@ -305,10 +341,10 @@
                               @keydown.esc="closeThreadMenu"
                             />
                             <div class="thread-rename-actions">
-                              <button class="thread-rename-action-btn confirm" type="button" @click="onThreadRenameSubmit(thread.id)">
+                              <button class="thread-rename-action-btn confirm" type="button" @click.stop.prevent="onThreadRenameSubmit(thread.id)">
                                 <IconTablerCheck />
                               </button>
-                              <button class="thread-rename-action-btn cancel" type="button" @click="closeThreadMenu">
+                              <button class="thread-rename-action-btn cancel" type="button" @click.stop.prevent="closeThreadMenu">
                                 <IconTablerX />
                               </button>
                             </div>
@@ -319,13 +355,12 @@
 
                     <button
                       class="thread-archive-button"
-                      :data-confirm="archiveConfirmThreadId === thread.id"
                       type="button"
+                      :aria-label="t('sidebarTree.archiveThread')"
                       :title="t('sidebarTree.archiveThread')"
-                      @click="onArchiveClick(thread.id)"
+                      @click.stop="openArchiveConfirmation(thread.id)"
                     >
-                      <span v-if="archiveConfirmThreadId === thread.id">{{ t('sidebarTree.confirm') }}</span>
-                      <IconTablerArchive v-else class="thread-icon" />
+                      <IconTablerArchive class="thread-icon" />
                     </button>
                   </div>
                 </template>
@@ -359,6 +394,14 @@
       @close="closeSourceFoldersDialog"
       @save="onSourceFoldersSave"
     />
+    <ThreadActionConfirmDialog
+      :open="confirmThreadId.length > 0 && confirmThreadAction.length > 0"
+      :action="confirmThreadAction || 'archive'"
+      :thread-title="confirmThreadTitle"
+      :ui-language="uiLanguage"
+      @cancel="closeThreadActionConfirmation"
+      @confirm="onThreadActionConfirm"
+    />
   </section>
 </template>
 
@@ -379,6 +422,7 @@ import IconTablerPin from '../icons/IconTablerPin.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
 import ProjectSourceFoldersDialog from './ProjectSourceFoldersDialog.vue'
 import SidebarMenuRow from './SidebarMenuRow.vue'
+import ThreadActionConfirmDialog from './ThreadActionConfirmDialog.vue'
 
 const vFocus = {
   mounted: (el: HTMLElement) => el.focus(),
@@ -443,15 +487,16 @@ const PROJECT_GROUP_EXPANDED_GAP_PX = 6
 const expandedProjects = ref<Record<string, boolean>>({})
 const collapsedProjects = ref<Record<string, boolean>>({})
 const pinnedThreadIds = ref<string[]>([])
-const archiveConfirmThreadId = ref('')
 const openProjectMenuId = ref('')
 const projectMenuMode = ref<'actions' | 'rename'>('actions')
 const projectRenameDraft = ref('')
 const groupsContainerRef = ref<HTMLElement | null>(null)
 const activeProjectDrag = ref<ActiveProjectDrag | null>(null)
 const openThreadMenuId = ref('')
-const threadMenuMode = ref<'actions' | 'rename' | 'delete'>('actions')
+const threadMenuMode = ref<'actions' | 'rename'>('actions')
 const threadRenameDraft = ref('')
+const confirmThreadId = ref('')
+const confirmThreadAction = ref<'archive' | 'delete' | ''>('')
 const sourceFoldersDialogProjectName = ref('')
 const threadMenuWrapElementById = new Map<string, HTMLElement>()
 const pendingProjectDrag = ref<PendingProjectDrag | null>(null)
@@ -474,6 +519,7 @@ const projectGroupResizeObserver =
       })
     : null
 const COLLAPSED_STORAGE_KEY = 'codex-web-local.collapsed-projects.v1'
+const PINNED_THREADS_STORAGE_KEY = 'codex-web-local.pinned-threads.v1'
 const normalizedLanguage = computed<UiLanguage>(() => props.uiLanguage ?? 'zh')
 
 function t(key: UiTextKey, params?: Record<string, number | string>): string {
@@ -496,11 +542,40 @@ function loadCollapsedState(): Record<string, boolean> {
 
 collapsedProjects.value = loadCollapsedState()
 
+function loadPinnedThreadIds(): string[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(PINNED_THREADS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return Array.from(new Set(
+      parsed.filter((threadId): threadId is string => typeof threadId === 'string')
+        .map((threadId) => threadId.trim())
+        .filter(Boolean),
+    ))
+  } catch {
+    return []
+  }
+}
+
 watch(
   collapsedProjects,
   (value) => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(value))
+  },
+  { deep: true },
+)
+
+pinnedThreadIds.value = loadPinnedThreadIds()
+
+watch(
+  pinnedThreadIds,
+  (value) => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(PINNED_THREADS_STORAGE_KEY, JSON.stringify(value))
   },
   { deep: true },
 )
@@ -514,8 +589,19 @@ function threadMatchesSearch(thread: UiThread): boolean {
   const q = normalizedSearchQuery.value
   return (
     thread.title.toLowerCase().includes(q) ||
-    thread.preview.toLowerCase().includes(q)
+    thread.preview.toLowerCase().includes(q) ||
+    thread.cwd.toLowerCase().includes(q)
   )
+}
+
+function projectMatchesSearch(group: UiProjectGroup): boolean {
+  if (!isSearchActive.value) return true
+  const q = normalizedSearchQuery.value
+  return [
+    group.projectName,
+    getProjectDisplayName(group.projectName),
+    ...getProjectSourceFolders(group.projectName),
+  ].some((value) => value.toLowerCase().includes(q))
 }
 
 const filteredGroups = computed<UiProjectGroup[]>(() => {
@@ -523,7 +609,9 @@ const filteredGroups = computed<UiProjectGroup[]>(() => {
   return props.groups
     .map((group) => ({
       ...group,
-      threads: group.threads.filter(threadMatchesSearch),
+      threads: projectMatchesSearch(group)
+        ? group.threads
+        : group.threads.filter(threadMatchesSearch),
     }))
     .filter((group) => group.threads.length > 0)
 })
@@ -546,6 +634,7 @@ const pinnedThreads = computed(() =>
     .filter((thread): thread is UiThread => thread !== null)
     .filter(threadMatchesSearch),
 )
+const confirmThreadTitle = computed(() => threadById.value.get(confirmThreadId.value)?.title ?? '')
 
 const projectedDropProjectIndex = computed<number | null>(() => {
   const drag = activeProjectDrag.value
@@ -633,15 +722,42 @@ function onSelect(threadId: string): void {
   emit('select', threadId)
 }
 
-function onArchiveClick(threadId: string): void {
-  if (archiveConfirmThreadId.value !== threadId) {
-    archiveConfirmThreadId.value = threadId
+function openThreadActionConfirmation(threadId: string, action: 'archive' | 'delete'): void {
+  if (action === 'delete' && !props.canDeleteThreads) return
+  closeThreadMenu()
+  confirmThreadId.value = threadId
+  confirmThreadAction.value = action
+}
+
+function openArchiveConfirmation(threadId: string): void {
+  openThreadActionConfirmation(threadId, 'archive')
+}
+
+function openDeleteConfirmation(threadId: string): void {
+  openThreadActionConfirmation(threadId, 'delete')
+}
+
+function closeThreadActionConfirmation(): void {
+  confirmThreadId.value = ''
+  confirmThreadAction.value = ''
+}
+
+function onThreadActionConfirm(): void {
+  const threadId = confirmThreadId.value
+  const action = confirmThreadAction.value
+  if (!threadId || !action) return
+  if (action === 'delete' && !props.canDeleteThreads) {
+    closeThreadActionConfirmation()
     return
   }
 
-  archiveConfirmThreadId.value = ''
-  pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId)
-  emit('archive', threadId)
+  closeThreadActionConfirmation()
+  if (action === 'archive') {
+    emit('archive', threadId)
+    return
+  }
+
+  emit('delete', threadId)
 }
 
 function getNewThreadButtonAriaLabel(projectName: string): string {
@@ -652,12 +768,6 @@ function getNewThreadButtonAriaLabel(projectName: string): string {
 
 function onStartNewThread(projectName: string): void {
   emit('start-new-thread', projectName)
-}
-
-function onThreadRowLeave(threadId: string): void {
-  if (archiveConfirmThreadId.value === threadId) {
-    archiveConfirmThreadId.value = ''
-  }
 }
 
 function getProjectDisplayName(projectName: string): string {
@@ -717,12 +827,14 @@ function toggleProjectMenu(projectName: string): void {
     return
   }
 
+  closeThreadMenu()
   openProjectMenuId.value = projectName
   projectMenuMode.value = 'actions'
   projectRenameDraft.value = getProjectDisplayName(projectName)
 }
 
 function openRenameProjectMenu(projectName: string): void {
+  closeThreadMenu()
   openProjectMenuId.value = projectName
   projectMenuMode.value = 'rename'
   projectRenameDraft.value = getProjectDisplayName(projectName)
@@ -768,16 +880,6 @@ function openRenameThreadMenu(threadId: string): void {
   threadMenuMode.value = 'rename'
   const thread = threadById.value.get(threadId)
   threadRenameDraft.value = thread?.title ?? ''
-}
-
-function openDeleteThreadMenu(threadId: string): void {
-  openThreadMenuId.value = threadId
-  threadMenuMode.value = 'delete'
-}
-
-function onThreadDeleteSubmit(threadId: string): void {
-  emit('delete', threadId)
-  closeThreadMenu()
 }
 
 function onThreadRenameSubmit(threadId: string): void {
@@ -888,15 +990,21 @@ function isEventInsideOpenProjectMenu(event: Event): boolean {
 }
 
 function onProjectMenuPointerDown(event: PointerEvent): void {
-  if (!openProjectMenuId.value) return
-  if (isEventInsideOpenProjectMenu(event)) return
-  closeProjectMenu()
+  if (openProjectMenuId.value && !isEventInsideOpenProjectMenu(event)) {
+    closeProjectMenu()
+  }
+  if (openThreadMenuId.value && !isEventInsideOpenThreadMenu(event)) {
+    closeThreadMenu()
+  }
 }
 
 function onProjectMenuFocusIn(event: FocusEvent): void {
-  if (!openProjectMenuId.value) return
-  if (isEventInsideOpenProjectMenu(event)) return
-  closeProjectMenu()
+  if (openProjectMenuId.value && !isEventInsideOpenProjectMenu(event)) {
+    closeProjectMenu()
+  }
+  if (openThreadMenuId.value && !isEventInsideOpenThreadMenu(event)) {
+    closeThreadMenu()
+  }
 }
 
 function onWindowBlurForProjectMenu(): void {
@@ -1230,6 +1338,20 @@ watch(
   },
 )
 
+watch(
+  () => props.groups.flatMap((group) => group.threads.map((thread) => thread.id)),
+  (threadIds) => {
+    const availableThreadIds = new Set(threadIds)
+    if (confirmThreadId.value && !availableThreadIds.has(confirmThreadId.value)) {
+      closeThreadActionConfirmation()
+    }
+    const nextPinnedThreadIds = pinnedThreadIds.value.filter((threadId) => availableThreadIds.has(threadId))
+    if (nextPinnedThreadIds.length !== pinnedThreadIds.value.length) {
+      pinnedThreadIds.value = nextPinnedThreadIds
+    }
+  },
+)
+
 watch([openProjectMenuId, openThreadMenuId], ([pId, tId]) => {
   if (pId || tId) {
     bindProjectMenuDismissListeners()
@@ -1486,6 +1608,10 @@ onBeforeUnmount(() => {
   @apply min-h-8 py-1;
 }
 
+.thread-row[data-menu-open='true'] {
+  @apply relative z-30;
+}
+
 .thread-row:hover {
   background: var(--color-bg-subtle);
 }
@@ -1548,10 +1674,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
 }
 
-.thread-archive-button[data-confirm='true'] {
-  @apply h-5 w-auto px-1.5;
-}
-
 .thread-icon {
   @apply w-4 h-4;
 }
@@ -1587,7 +1709,8 @@ onBeforeUnmount(() => {
 }
 
 .thread-row:hover .thread-pin-button,
-.thread-row:focus-within .thread-pin-button {
+.thread-row:focus-within .thread-pin-button,
+.thread-row[data-pinned='true'] .thread-pin-button {
   @apply opacity-100 pointer-events-auto;
 }
 

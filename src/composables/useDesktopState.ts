@@ -105,6 +105,7 @@ import {
   type QueuedMessageState,
 } from './desktop-state/queue-utils'
 import { isApprovalRequestMethod } from '../utils/approvalRequestDisplay'
+import { collapsePathSegments } from '../utils/pathUtils'
 import {
   listPersistedServerRequestsForWorkspace as listPersistedServerRequestsForWorkspaceFromMap,
   listSelectedServerRequests,
@@ -1236,28 +1237,33 @@ export function useDesktopState() {
   function syncProjectSourceFolders(groups: UiProjectGroup[]): void {
     let changed = false
     const next = { ...projectSourceFoldersById.value }
+    const configuredFolderOwners = new Set(
+      Object.values(next).flatMap((config) => config.folders.map((folder) => collapsePathSegments(folder))),
+    )
 
     for (const group of groups) {
       const threadFolders = Array.from(new Set(
         group.threads
-          .map((thread) => thread.cwd.trim())
+          .map((thread) => collapsePathSegments(thread.cwd))
           .filter(Boolean),
       ))
       const existing = next[group.projectName]
       if (!existing) {
-        if (threadFolders.length > 0) {
+        const alreadyConfigured = threadFolders.some((folder) => configuredFolderOwners.has(folder))
+        if (threadFolders.length > 0 && !alreadyConfigured) {
           next[group.projectName] = {
             folders: threadFolders,
             primaryCwd: threadFolders[0],
           }
+          threadFolders.forEach((folder) => configuredFolderOwners.add(folder))
           changed = true
         }
         continue
       }
 
-      const folders = Array.from(new Set([...existing.folders, ...threadFolders]))
+      const folders = existing.folders
       const primaryCwd = folders.includes(existing.primaryCwd) ? existing.primaryCwd : folders[0] ?? ''
-      if (folders.join('\n') !== existing.folders.join('\n') || primaryCwd !== existing.primaryCwd) {
+      if (primaryCwd !== existing.primaryCwd) {
         next[group.projectName] = { folders, primaryCwd }
         changed = true
       }
@@ -1272,7 +1278,7 @@ export function useDesktopState() {
     const projectByCwd = new Map<string, string>()
     for (const [projectName, config] of Object.entries(projectSourceFoldersById.value)) {
       for (const folder of config.folders) {
-        const normalizedFolder = folder.trim()
+        const normalizedFolder = collapsePathSegments(folder)
         if (normalizedFolder && !projectByCwd.has(normalizedFolder)) {
           projectByCwd.set(normalizedFolder, projectName)
         }
@@ -1282,7 +1288,7 @@ export function useDesktopState() {
     const grouped = new Map<string, UiThread[]>()
     for (const group of groups) {
       for (const thread of group.threads) {
-        const projectName = projectByCwd.get(thread.cwd.trim()) ?? group.projectName
+        const projectName = projectByCwd.get(collapsePathSegments(thread.cwd)) ?? group.projectName
         const normalizedThread = projectName === thread.projectName
           ? thread
           : { ...thread, projectName }
@@ -1335,6 +1341,14 @@ export function useDesktopState() {
       activeThreadIds,
       GLOBAL_SERVER_REQUEST_SCOPE,
     )
+    const nextPersistedServerRequests = Object.fromEntries(
+      Object.entries(persistedServerRequestsByThreadId.value).filter(
+        ([threadId]) => threadId === GLOBAL_SERVER_REQUEST_SCOPE || activeThreadIds.has(threadId),
+      ),
+    )
+    if (Object.keys(nextPersistedServerRequests).length !== Object.keys(persistedServerRequestsByThreadId.value).length) {
+      persistedServerRequestsByThreadId.value = nextPersistedServerRequests
+    }
     syncWorkspaceBranchBlockedReasons()
   }
 
@@ -2046,6 +2060,17 @@ export function useDesktopState() {
 
     try {
       await deleteThread(normalizedThreadId)
+      optimisticThreadById.delete(normalizedThreadId)
+      pendingNewThreadSelectionUntilById.delete(normalizedThreadId)
+      pendingThreadMessageRefresh.delete(normalizedThreadId)
+      pendingTurnStartsById.delete(normalizedThreadId)
+      if (selectedThreadId.value === normalizedThreadId) {
+        selectThreadLoadAbortController?.abort()
+        selectThreadLoadAbortController = null
+      }
+      sharedSessionSnapshots.value = sharedSessionSnapshots.value.filter(
+        (snapshot) => snapshot.sourceThreadId.trim() !== normalizedThreadId,
+      )
       await loadThreads()
       await loadMessages(selectedThreadId.value)
     } catch (unknownError) {
@@ -2264,25 +2289,28 @@ export function useDesktopState() {
   }
 
   function renameProject(projectName: string, displayName: string): void {
-    if (projectName.length === 0) return
+    const normalizedProjectName = projectName.trim()
+    const normalizedDisplayName = displayName.trim()
+    if (normalizedProjectName.length === 0 || normalizedDisplayName.length === 0) return
 
-    const currentValue = projectDisplayNameById.value[projectName] ?? ''
-    if (currentValue === displayName) return
+    const currentValue = projectDisplayNameById.value[normalizedProjectName] ?? ''
+    if (currentValue === normalizedDisplayName) return
 
     projectDisplayNameById.value = {
       ...projectDisplayNameById.value,
-      [projectName]: displayName,
+      [normalizedProjectName]: normalizedDisplayName,
     }
     saveProjectDisplayNames(projectDisplayNameById.value)
   }
 
   function setProjectSourceFolders(projectName: string, folders: string[], primaryCwd: string): void {
     const normalizedProjectName = projectName.trim()
-    const normalizedFolders = Array.from(new Set(folders.map((folder) => folder.trim()).filter(Boolean)))
+    const normalizedFolders = Array.from(new Set(folders.map((folder) => collapsePathSegments(folder)).filter(Boolean)))
     if (!normalizedProjectName || normalizedFolders.length === 0) return
 
-    const normalizedPrimaryCwd = normalizedFolders.includes(primaryCwd.trim())
-      ? primaryCwd.trim()
+    const normalizedPrimaryCwdValue = collapsePathSegments(primaryCwd)
+    const normalizedPrimaryCwd = normalizedFolders.includes(normalizedPrimaryCwdValue)
+      ? normalizedPrimaryCwdValue
       : normalizedFolders[0]
     const next = {
       ...projectSourceFoldersById.value,
@@ -2293,6 +2321,8 @@ export function useDesktopState() {
     }
     projectSourceFoldersById.value = next
     saveProjectSourceFolders(next)
+    sourceGroups.value = regroupThreadsBySourceFolders(sourceGroups.value)
+    applyThreadFlags()
   }
 
   function removeProject(projectName: string): void {

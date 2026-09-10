@@ -4,6 +4,7 @@
       class="source-folders-dialog"
       role="dialog"
       aria-modal="true"
+      tabindex="-1"
       :aria-label="t('sidebarTree.sourceFoldersTitle', { projectName })"
       @keydown.esc="emit('close')"
     >
@@ -40,7 +41,8 @@
             class="source-folder-remove"
             type="button"
             :aria-label="`${t('sidebarTree.removeSourceFolder')}: ${folder}`"
-            @click="removeFolder(folder)"
+            @pointerdown.stop
+            @click.stop.prevent="removeFolder(folder)"
           >
             ×
           </button>
@@ -77,6 +79,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { tUi, type UiLanguage, type UiTextKey } from '../../i18n/uiText'
+import { collapsePathSegments } from '../../utils/pathUtils'
 
 const props = defineProps<{
   open: boolean
@@ -102,9 +105,10 @@ function t(key: UiTextKey, params?: Record<string, number | string>): string {
 }
 
 function resetDraft(): void {
-  draftFolders.value = Array.from(new Set(props.folders.map((folder) => folder.trim()).filter(Boolean)))
-  draftPrimary.value = draftFolders.value.includes(props.primaryCwd.trim())
-    ? props.primaryCwd.trim()
+  draftFolders.value = Array.from(new Set(props.folders.map((folder) => collapsePathSegments(folder)).filter(Boolean)))
+  const normalizedPrimaryCwd = collapsePathSegments(props.primaryCwd)
+  draftPrimary.value = draftFolders.value.includes(normalizedPrimaryCwd)
+    ? normalizedPrimaryCwd
     : draftFolders.value[0] ?? ''
   folderDraft.value = ''
 }
@@ -121,7 +125,7 @@ watch(
 )
 
 function addFolder(): void {
-  const folder = folderDraft.value.trim()
+  const folder = collapsePathSegments(folderDraft.value)
   if (!folder || draftFolders.value.includes(folder)) return
   draftFolders.value = [...draftFolders.value, folder]
   if (!draftPrimary.value) draftPrimary.value = folder

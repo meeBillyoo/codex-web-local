@@ -764,9 +764,29 @@ const UI_TEXT = {
     zh: '永久删除',
     en: 'Delete permanently',
   },
-  'sidebarTree.deleteThreadConfirm': {
-    zh: '再次点击以永久删除',
-    en: 'Click again to permanently delete',
+  'sidebarTree.deleteThreadConfirmTitle': {
+    zh: '永久删除会话？',
+    en: 'Delete thread permanently?',
+  },
+  'sidebarTree.deleteThreadConfirmDescription': {
+    zh: ({ threadTitle }) => `“${String(threadTitle)}”及其历史记录将被永久删除，无法恢复。`,
+    en: ({ threadTitle }) => `"${String(threadTitle)}" and its history will be permanently deleted and cannot be recovered.`,
+  },
+  'sidebarTree.archiveThreadConfirmTitle': {
+    zh: '归档会话？',
+    en: 'Archive thread?',
+  },
+  'sidebarTree.archiveThreadConfirmDescription': {
+    zh: ({ threadTitle }) => `“${String(threadTitle)}”将从活动列表移除，但历史记录仍会保留。`,
+    en: ({ threadTitle }) => `"${String(threadTitle)}" will be removed from the active list, but its history will be kept.`,
+  },
+  'sidebarTree.confirmDeleteThread': {
+    zh: '永久删除',
+    en: 'Delete permanently',
+  },
+  'sidebarTree.confirmArchiveThread': {
+    zh: '归档',
+    en: 'Archive',
   },
   'sidebarTree.remove': {
     zh: '移除',
@@ -796,17 +816,21 @@ const UI_TEXT = {
     zh: '置顶',
     en: 'Pin',
   },
+  'sidebarTree.unpin': {
+    zh: '取消置顶',
+    en: 'Unpin',
+  },
   'sidebarTree.archiveThread': {
     zh: '归档会话',
     en: 'Archive thread',
   },
-  'sidebarTree.confirm': {
-    zh: '确认',
-    en: 'Confirm',
-  },
   'sidebarTree.projectMenu': {
     zh: '项目菜单',
     en: 'Project menu',
+  },
+  'sidebarTree.threadMenu': {
+    zh: '会话菜单',
+    en: 'Thread menu',
   },
   'sidebarTree.newThreadInProject': {
     zh: ({ projectName }) => `在 ${String(projectName)} 中新建会话`,
