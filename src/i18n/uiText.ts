@@ -80,6 +80,34 @@ const UI_TEXT = {
     zh: '网络连接已恢复。',
     en: 'Network connection restored.',
   },
+  'app.codexConnecting': {
+    zh: '正在连接 Codex 服务...',
+    en: 'Connecting to Codex service...',
+  },
+  'app.codexReconnecting': {
+    zh: 'Codex 实时连接已中断，正在重连。期间会自动刷新状态。',
+    en: 'The Codex realtime connection was interrupted. Reconnecting; state will refresh automatically.',
+  },
+  'app.codexDisconnected': {
+    zh: 'Codex 服务连接已关闭，请检查服务后重试。',
+    en: 'The Codex service connection is closed. Check the service and retry.',
+  },
+  'app.syncFailed': {
+    zh: ({ message }) => `状态同步失败：${String(message)}`,
+    en: ({ message }) => `State synchronization failed: ${String(message)}`,
+  },
+  'app.modelLoadFailed': {
+    zh: ({ message }) => `模型列表暂不可用：${String(message)}`,
+    en: ({ message }) => `Model list is temporarily unavailable: ${String(message)}`,
+  },
+  'app.turnStale': {
+    zh: '这轮对话超过 90 秒没有收到新进展，正在核对服务端状态。',
+    en: 'No new progress has arrived for 90 seconds. Checking the server state.',
+  },
+  'app.refreshNow': {
+    zh: '立即刷新',
+    en: 'Refresh now',
+  },
   'app.checkForUpdates': {
     zh: '检查应用更新',
     en: 'Check for app updates',

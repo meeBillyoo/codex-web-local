@@ -28,6 +28,7 @@ import {
   subscribeCodexNotifications,
   startThreadTurn,
   type RpcNotification,
+  type RpcNotificationStreamStatus,
 } from '../api/codexGateway'
 import { CodexApiError } from '../api/codexErrors'
 import type {
@@ -163,6 +164,10 @@ import { retryOrThrow, retryWithResult } from './desktop-state/retry-utils'
 const EVENT_SYNC_DEBOUNCE_MS = 220
 const AUTO_REFRESH_INTERVAL_MS = 4000
 const THREAD_LIST_AUTO_REFRESH_INTERVAL_MS = 30000
+const BACKGROUND_SYNC_INTERVAL_MS = 15000
+const TURN_HEALTH_TICK_INTERVAL_MS = 1000
+const TURN_STALE_AFTER_MS = 90_000
+const FAILED_SYNC_RETRY_DELAY_MS = 4000
 const RATE_LIMIT_REFRESH_MIN_INTERVAL_MS = 30000
 const NEW_THREAD_SELECTION_HOLD_MS = 20000
 const RESUME_RETRY_ATTEMPTS = 3
@@ -190,6 +195,7 @@ const THREAD_LIST_REFRESH_METHODS = new Set([
   'thread/compacted',
   'thread/archived',
   'thread/unarchived',
+  'thread/deleted',
 ])
 
 function isAbortError(error: unknown): boolean {
@@ -198,6 +204,13 @@ function isAbortError(error: unknown): boolean {
 
 type TurnErrorState = {
   message: string
+}
+
+export type UiTurnHealth = {
+  startedAtIso: string
+  lastActivityAtIso: string
+  elapsedSeconds: number
+  isStale: boolean
 }
 
 function debugTokenUsageNotification(notification: RpcNotification): void {
@@ -278,6 +291,14 @@ export function useDesktopState() {
   const workspaceByCwd = ref<Record<string, WorkspaceModel>>({})
   const workspaceBaseBranchByCwd = ref<Record<string, string>>(loadWorkspaceBaseBranchMap())
   const canDeleteThreads = computed(() => availableRpcMethods.value.includes('thread/delete'))
+  const connectionState = ref<RpcNotificationStreamStatus>('closed')
+  const syncError = ref('')
+  const lastSuccessfulSyncAt = ref<string | null>(null)
+  const modelLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const modelLoadError = ref('')
+  const turnStartedAtByThreadId = ref<Record<string, string>>({})
+  const turnLastActivityAtByThreadId = ref<Record<string, string>>({})
+  const turnHealthTick = ref(0)
 
   const isLoadingThreads = ref(false)
   const isLoadingMessages = ref(false)
@@ -292,6 +313,8 @@ export function useDesktopState() {
   let eventSyncTimer: number | null = null
   let autoRefreshIntervalTimer: number | null = null
   let autoRefreshCountdownTimer: number | null = null
+  let backgroundSyncTimer: number | null = null
+  let turnHealthTimer: number | null = null
   let pendingThreadsRefresh = false
   const pendingThreadMessageRefresh = new Set<string>()
   let activeReasoningItemId = ''
@@ -301,6 +324,7 @@ export function useDesktopState() {
   let selectThreadLoadAbortController: AbortController | null = null
   let lastThreadListRefreshAtMs = 0
   let lastRateLimitRefreshAtMs = 0
+  let retrySyncAfterMs = 0
   const pendingNewThreadSelectionUntilById = new Map<string, number>()
   const optimisticThreadById = new Map<string, UiThread>()
 
@@ -440,6 +464,28 @@ export function useDesktopState() {
       activityDetails: activity?.details ?? [],
       reasoningText,
       errorText,
+    }
+  })
+  const selectedTurnHealth = computed<UiTurnHealth | null>(() => {
+    turnHealthTick.value
+    const threadId = selectedThreadId.value
+    if (!threadId || inProgressById.value[threadId] !== true) return null
+
+    const startedAtIso = turnStartedAtByThreadId.value[threadId] ?? new Date().toISOString()
+    const lastActivityAtIso = turnLastActivityAtByThreadId.value[threadId] ?? startedAtIso
+    const startedAtMs = new Date(startedAtIso).getTime()
+    const lastActivityAtMs = new Date(lastActivityAtIso).getTime()
+    const nowMs = Date.now()
+    const elapsedSeconds = Number.isFinite(startedAtMs)
+      ? Math.max(0, Math.floor((nowMs - startedAtMs) / 1000))
+      : 0
+    const isStale = Number.isFinite(lastActivityAtMs) && nowMs - lastActivityAtMs >= TURN_STALE_AFTER_MS
+
+    return {
+      startedAtIso,
+      lastActivityAtIso,
+      elapsedSeconds,
+      isStale,
     }
   })
   const messages = computed<UiMessage[]>(() => {
@@ -1176,6 +1222,8 @@ export function useDesktopState() {
   }
 
   async function refreshModelPreferences(): Promise<void> {
+    modelLoadState.value = 'loading'
+    modelLoadError.value = ''
     try {
       const [modelIds, currentConfig] = await Promise.all([
         getAvailableModelIds(),
@@ -1203,8 +1251,15 @@ export function useDesktopState() {
       }
 
       normalizeReasoningEffortForModel(selectedModelId.value)
-    } catch {
-      // Keep chat UI usable even if model metadata is temporarily unavailable.
+      modelLoadState.value = modelIds.length > 0 ? 'ready' : 'error'
+      if (modelIds.length === 0) {
+        modelLoadError.value = 'No models are currently available'
+      }
+    } catch (unknownError) {
+      modelLoadState.value = 'error'
+      modelLoadError.value = unknownError instanceof Error
+        ? unknownError.message
+        : 'Failed to load available models'
     }
   }
 
@@ -1306,6 +1361,74 @@ export function useDesktopState() {
     }))
   }
 
+  function removeThreadFromLocalState(threadId: string): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return
+
+    optimisticThreadById.delete(normalizedThreadId)
+    pendingNewThreadSelectionUntilById.delete(normalizedThreadId)
+    pendingThreadMessageRefresh.delete(normalizedThreadId)
+    pendingTurnStartsById.delete(normalizedThreadId)
+    sharedSessionSnapshots.value = sharedSessionSnapshots.value.filter(
+      (snapshot) => snapshot.sourceThreadId.trim() !== normalizedThreadId,
+    )
+
+    sourceGroups.value = sourceGroups.value
+      .map((group) => ({
+        projectName: group.projectName,
+        threads: group.threads.filter((thread) => thread.id !== normalizedThreadId),
+      }))
+      .filter((group) => group.threads.length > 0)
+
+    const nextSelectedThreadId = selectedThreadId.value === normalizedThreadId
+      ? flattenThreads(sourceGroups.value)[0]?.id ?? ''
+      : selectedThreadId.value
+    clearThreadScopedState(normalizedThreadId)
+    applyThreadFlags()
+
+    if (selectedThreadId.value === normalizedThreadId) {
+      selectThreadLoadAbortController?.abort()
+      selectThreadLoadAbortController = null
+      setSelectedThreadId(nextSelectedThreadId)
+      applyThreadFlags()
+    }
+  }
+
+  function clearThreadScopedState(threadId: string): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return
+
+    readStateByThreadId.value = omitKey(readStateByThreadId.value, normalizedThreadId)
+    scrollStateByThreadId.value = omitKey(scrollStateByThreadId.value, normalizedThreadId)
+    loadedMessagesByThreadId.value = omitKey(loadedMessagesByThreadId.value, normalizedThreadId)
+    loadedVersionByThreadId.value = omitKey(loadedVersionByThreadId.value, normalizedThreadId)
+    resumedThreadById.value = omitKey(resumedThreadById.value, normalizedThreadId)
+    persistedMessagesByThreadId.value = omitKey(persistedMessagesByThreadId.value, normalizedThreadId)
+    liveAgentMessagesByThreadId.value = omitKey(liveAgentMessagesByThreadId.value, normalizedThreadId)
+    liveReasoningTextByThreadId.value = omitKey(liveReasoningTextByThreadId.value, normalizedThreadId)
+    turnSummaryByThreadId.value = omitKey(turnSummaryByThreadId.value, normalizedThreadId)
+    turnActivityByThreadId.value = omitKey(turnActivityByThreadId.value, normalizedThreadId)
+    turnErrorByThreadId.value = omitKey(turnErrorByThreadId.value, normalizedThreadId)
+    activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, normalizedThreadId)
+    latestFileChangesByThreadId.value = omitKey(latestFileChangesByThreadId.value, normalizedThreadId)
+    queuedMessagesByThreadId.value = omitKey(queuedMessagesByThreadId.value, normalizedThreadId)
+    contextUsageByThreadId.value = omitKey(contextUsageByThreadId.value, normalizedThreadId)
+    compactingContextByThreadId.value = omitKey(compactingContextByThreadId.value, normalizedThreadId)
+    eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, normalizedThreadId)
+    inProgressById.value = omitKey(inProgressById.value, normalizedThreadId)
+    pendingServerRequestsByThreadId.value = omitKey(pendingServerRequestsByThreadId.value, normalizedThreadId)
+    persistedServerRequestsByThreadId.value = omitKey(
+      persistedServerRequestsByThreadId.value,
+      normalizedThreadId,
+    )
+    clearTurnHealthForThread(normalizedThreadId)
+    saveReadStateMap(readStateByThreadId.value)
+    saveThreadScrollStateMap(scrollStateByThreadId.value)
+    saveLatestFileChangesMap(latestFileChangesByThreadId.value)
+    saveThreadContextUsageMap(contextUsageByThreadId.value)
+    syncWorkspaceBranchBlockedReasons()
+  }
+
   function pruneThreadScopedState(flatThreads: UiThread[]): void {
     const activeThreadIds = new Set(flatThreads.map((thread) => thread.id))
     const nextReadState = pruneThreadStateMap(readStateByThreadId.value, activeThreadIds)
@@ -1328,6 +1451,8 @@ export function useDesktopState() {
     turnActivityByThreadId.value = pruneThreadStateMap(turnActivityByThreadId.value, activeThreadIds)
     turnErrorByThreadId.value = pruneThreadStateMap(turnErrorByThreadId.value, activeThreadIds)
     activeTurnIdByThreadId.value = pruneThreadStateMap(activeTurnIdByThreadId.value, activeThreadIds)
+    turnStartedAtByThreadId.value = pruneThreadStateMap(turnStartedAtByThreadId.value, activeThreadIds)
+    turnLastActivityAtByThreadId.value = pruneThreadStateMap(turnLastActivityAtByThreadId.value, activeThreadIds)
     latestFileChangesByThreadId.value = pruneThreadStateMap(latestFileChangesByThreadId.value, activeThreadIds)
     saveLatestFileChangesMap(latestFileChangesByThreadId.value)
     queuedMessagesByThreadId.value = pruneThreadStateMap(queuedMessagesByThreadId.value, activeThreadIds)
@@ -1384,9 +1509,50 @@ export function useDesktopState() {
     }
   }
 
+  function normalizeActivityTimestamp(value?: string): string {
+    if (value) {
+      const timestamp = new Date(value)
+      if (!Number.isNaN(timestamp.getTime())) {
+        return timestamp.toISOString()
+      }
+    }
+    return new Date().toISOString()
+  }
+
+  function markTurnActivityForThread(threadId: string, atIso?: string): void {
+    if (!threadId) return
+    const timestamp = normalizeActivityTimestamp(atIso)
+    const startedAt = turnStartedAtByThreadId.value[threadId]
+    if (!startedAt) {
+      turnStartedAtByThreadId.value = {
+        ...turnStartedAtByThreadId.value,
+        [threadId]: timestamp,
+      }
+    }
+    const previousActivity = turnLastActivityAtByThreadId.value[threadId]
+    if (previousActivity && new Date(previousActivity).getTime() > new Date(timestamp).getTime()) {
+      return
+    }
+    turnLastActivityAtByThreadId.value = {
+      ...turnLastActivityAtByThreadId.value,
+      [threadId]: timestamp,
+    }
+    turnHealthTick.value += 1
+  }
+
+  function clearTurnHealthForThread(threadId: string): void {
+    if (!threadId) return
+    turnStartedAtByThreadId.value = omitKey(turnStartedAtByThreadId.value, threadId)
+    turnLastActivityAtByThreadId.value = omitKey(turnLastActivityAtByThreadId.value, threadId)
+    turnHealthTick.value += 1
+  }
+
   function setThreadInProgress(threadId: string, nextInProgress: boolean): void {
     if (!threadId) return
     const currentValue = inProgressById.value[threadId] === true
+    if (nextInProgress && !turnStartedAtByThreadId.value[threadId]) {
+      markTurnActivityForThread(threadId)
+    }
     if (currentValue === nextInProgress) return
     if (nextInProgress) {
       inProgressById.value = {
@@ -1395,6 +1561,7 @@ export function useDesktopState() {
       }
     } else {
       inProgressById.value = omitKey(inProgressById.value, threadId)
+      clearTurnHealthForThread(threadId)
     }
     applyThreadFlags()
   }
@@ -1642,6 +1809,17 @@ export function useDesktopState() {
       return
     }
 
+    const notificationThreadId = extractThreadIdFromNotification(notification)
+    if (notification.method === 'thread/deleted') {
+      if (notificationThreadId) {
+        removeThreadFromLocalState(notificationThreadId)
+      }
+      return
+    }
+    if (notificationThreadId && inProgressById.value[notificationThreadId] === true) {
+      markTurnActivityForThread(notificationThreadId, notification.atIso)
+    }
+
     const threadContextUsage = readThreadContextUsage(notification, selectedThreadId.value)
     if (threadContextUsage) {
       contextUsageByThreadId.value = {
@@ -1670,6 +1848,16 @@ export function useDesktopState() {
     const startedTurn = readTurnStartedInfo(notification)
     if (startedTurn) {
       pendingTurnStartsById.set(startedTurn.turnId, startedTurn)
+      const startedAtIso = new Date(startedTurn.startedAtMs).toISOString()
+      turnStartedAtByThreadId.value = {
+        ...turnStartedAtByThreadId.value,
+        [startedTurn.threadId]: startedAtIso,
+      }
+      turnLastActivityAtByThreadId.value = {
+        ...turnLastActivityAtByThreadId.value,
+        [startedTurn.threadId]: notification.atIso || startedAtIso,
+      }
+      turnHealthTick.value += 1
       activeTurnIdByThreadId.value = {
         ...activeTurnIdByThreadId.value,
         [startedTurn.threadId]: startedTurn.turnId,
@@ -1749,7 +1937,6 @@ export function useDesktopState() {
       void dispatchNextQueuedMessage(completedTurn.threadId)
     }
 
-    const notificationThreadId = extractThreadIdFromNotification(notification)
     if (!notificationThreadId || notificationThreadId !== selectedThreadId.value) return
 
     const startedAgentMessageId = readAgentMessageStartedId(notification)
@@ -1987,6 +2174,7 @@ export function useDesktopState() {
 
   async function refreshAll() {
     error.value = ''
+    syncError.value = ''
 
     try {
       await Promise.all([
@@ -1999,8 +2187,11 @@ export function useDesktopState() {
       await loadMessages(selectedThreadId.value)
       await refreshSelectedWorkspaceBranchState({ includeBranches: false, silent: true })
       await refreshSelectedWorkspaceDiffTotals()
+      lastSuccessfulSyncAt.value = new Date().toISOString()
     } catch (unknownError) {
-      error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      const message = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      syncError.value = message
+      error.value = message
     }
   }
 
@@ -2060,17 +2251,7 @@ export function useDesktopState() {
 
     try {
       await deleteThread(normalizedThreadId)
-      optimisticThreadById.delete(normalizedThreadId)
-      pendingNewThreadSelectionUntilById.delete(normalizedThreadId)
-      pendingThreadMessageRefresh.delete(normalizedThreadId)
-      pendingTurnStartsById.delete(normalizedThreadId)
-      if (selectedThreadId.value === normalizedThreadId) {
-        selectThreadLoadAbortController?.abort()
-        selectThreadLoadAbortController = null
-      }
-      sharedSessionSnapshots.value = sharedSessionSnapshots.value.filter(
-        (snapshot) => snapshot.sourceThreadId.trim() !== normalizedThreadId,
-      )
+      removeThreadFromLocalState(normalizedThreadId)
       await loadThreads()
       await loadMessages(selectedThreadId.value)
     } catch (unknownError) {
@@ -2397,12 +2578,23 @@ export function useDesktopState() {
       const currentVersion = currentThreadVersion(threadId)
       const loadedVersion = loadedVersionByThreadId.value[threadId] ?? ''
       const hasVersionChange = currentVersion.length > 0 && currentVersion !== loadedVersion
+      const isActive = inProgressById.value[threadId] === true
+      const lastActivityAtIso = turnLastActivityAtByThreadId.value[threadId] ?? ''
+      const lastActivityAtMs = lastActivityAtIso ? new Date(lastActivityAtIso).getTime() : 0
+      const isTurnStale = isActive && (!Number.isFinite(lastActivityAtMs) || Date.now() - lastActivityAtMs >= TURN_STALE_AFTER_MS)
+      const streamNeedsRecovery = connectionState.value !== 'connected'
 
-      if (hasVersionChange) {
+      if (hasVersionChange || isActive || isTurnStale || streamNeedsRecovery) {
         await loadMessages(threadId, { silent: true })
       }
-    } catch {
-      // ignore poll failures and keep last known state
+      lastSuccessfulSyncAt.value = new Date().toISOString()
+      syncError.value = ''
+      retrySyncAfterMs = 0
+    } catch (unknownError) {
+      retrySyncAfterMs = Date.now() + FAILED_SYNC_RETRY_DELAY_MS
+      syncError.value = unknownError instanceof Error
+        ? unknownError.message
+        : 'Background synchronization failed'
     } finally {
       isPolling.value = false
     }
@@ -2439,8 +2631,20 @@ export function useDesktopState() {
       if (isActiveDirty) {
         await loadMessages(activeThreadId, { silent: true })
       }
-    } catch {
-      // Keep UI stable on transient event sync failures.
+      lastSuccessfulSyncAt.value = new Date().toISOString()
+      syncError.value = ''
+      retrySyncAfterMs = 0
+    } catch (unknownError) {
+      retrySyncAfterMs = Date.now() + FAILED_SYNC_RETRY_DELAY_MS
+      if (shouldRefreshThreads) {
+        pendingThreadsRefresh = true
+      }
+      for (const threadId of threadIdsToRefresh) {
+        pendingThreadMessageRefresh.add(threadId)
+      }
+      syncError.value = unknownError instanceof Error
+        ? unknownError.message
+        : 'Realtime synchronization failed'
     } finally {
       isPolling.value = false
 
@@ -2449,10 +2653,14 @@ export function useDesktopState() {
         typeof window !== 'undefined' &&
         eventSyncTimer === null
       ) {
+        const retryDelay = Math.max(
+          EVENT_SYNC_DEBOUNCE_MS,
+          retrySyncAfterMs > Date.now() ? retrySyncAfterMs - Date.now() : EVENT_SYNC_DEBOUNCE_MS,
+        )
         eventSyncTimer = window.setTimeout(() => {
           eventSyncTimer = null
           void syncFromNotifications()
-        }, EVENT_SYNC_DEBOUNCE_MS)
+        }, retryDelay)
       }
     }
   }
@@ -2467,10 +2675,53 @@ export function useDesktopState() {
     void refreshSharedSessionSnapshots({ silent: true })
     void loadPendingServerRequestsFromBridge()
     void loadPersistedServerRequestsFromBridge()
-    stopNotificationStream = subscribeCodexNotifications((notification) => {
-      applyRealtimeUpdates(notification)
-      queueEventDrivenSync(notification)
-    })
+    backgroundSyncTimer = window.setInterval(() => {
+      void syncThreadStatus()
+    }, BACKGROUND_SYNC_INTERVAL_MS)
+    turnHealthTimer = window.setInterval(() => {
+      turnHealthTick.value += 1
+    }, TURN_HEALTH_TICK_INTERVAL_MS)
+    stopNotificationStream = subscribeCodexNotifications(
+      (notification) => {
+        applyRealtimeUpdates(notification)
+        queueEventDrivenSync(notification)
+      },
+      (status) => {
+        connectionState.value = status
+        if (status === 'connected') {
+          syncError.value = ''
+          void syncThreadStatus()
+        } else if (status === 'reconnecting') {
+          syncError.value = 'Realtime connection interrupted; waiting to reconnect'
+        } else if (status === 'connecting') {
+          syncError.value = 'Connecting to Codex service'
+        }
+      },
+    )
+  }
+
+  async function retrySynchronization(): Promise<void> {
+    syncError.value = ''
+    retrySyncAfterMs = 0
+    await refreshAll()
+    if (connectionState.value !== 'connected' && typeof window !== 'undefined') {
+      stopNotificationStream?.()
+      stopNotificationStream = subscribeCodexNotifications(
+        (notification) => {
+          applyRealtimeUpdates(notification)
+          queueEventDrivenSync(notification)
+        },
+        (status) => {
+          connectionState.value = status
+          if (status === 'connected') {
+            syncError.value = ''
+            void syncThreadStatus()
+          } else if (status === 'reconnecting') {
+            syncError.value = 'Realtime connection interrupted; waiting to reconnect'
+          }
+        },
+      )
+    }
   }
 
   async function loadPendingServerRequestsFromBridge(): Promise<void> {
@@ -2592,6 +2843,14 @@ export function useDesktopState() {
       stopNotificationStream()
       stopNotificationStream = null
     }
+    if (backgroundSyncTimer !== null && typeof window !== 'undefined') {
+      window.clearInterval(backgroundSyncTimer)
+      backgroundSyncTimer = null
+    }
+    if (turnHealthTimer !== null && typeof window !== 'undefined') {
+      window.clearInterval(turnHealthTimer)
+      turnHealthTimer = null
+    }
 
     pendingThreadsRefresh = false
     pendingThreadMessageRefresh.clear()
@@ -2609,7 +2868,11 @@ export function useDesktopState() {
     turnSummaryByThreadId.value = {}
     turnErrorByThreadId.value = {}
     activeTurnIdByThreadId.value = {}
+    turnStartedAtByThreadId.value = {}
+    turnLastActivityAtByThreadId.value = {}
     compactingContextByThreadId.value = {}
+    connectionState.value = 'closed'
+    syncError.value = ''
   }
 
   return {
@@ -2649,8 +2912,15 @@ export function useDesktopState() {
     isInterruptingTurn,
     isAutoRefreshEnabled,
     autoRefreshSecondsLeft,
+    connectionState,
+    syncError,
+    lastSuccessfulSyncAt,
+    modelLoadState,
+    modelLoadError,
+    selectedTurnHealth,
     error,
     refreshAll,
+    retrySynchronization,
     selectThread,
     setThreadScrollState,
     archiveThreadById,

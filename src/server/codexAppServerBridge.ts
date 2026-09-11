@@ -78,6 +78,8 @@ type PersistedServerRequest = {
   dismissedBy: 'user' | null
 }
 
+type AppServerStatus = 'idle' | 'starting' | 'ready' | 'failed' | 'stopped'
+
 const PERSISTED_SERVER_REQUEST_UNRESOLVED_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const PERSISTED_SERVER_REQUEST_RESOLVED_RETENTION_MS = 24 * 60 * 60 * 1000
 const SHARED_SESSION_NOTIFICATION_TRIGGER_METHODS = new Set([
@@ -969,15 +971,32 @@ class AppServerProcess {
   private readonly persistedServerRequests = new Map<number, PersistedServerRequest>()
   private readonly threadCwdById = new Map<string, string>()
   private readonly threadPathById = new Map<string, string>()
+  private appServerStatus: AppServerStatus = 'idle'
+  private readonly statusListeners = new Set<(status: AppServerStatus) => void>()
   private readonly persistedServerRequestsLedgerPath = getPersistedServerRequestsLedgerPath()
   private persistedServerRequestsLoaded: Promise<void> | null = null
   private persistedServerRequestsFlushChain: Promise<void> = Promise.resolve()
+
+  private setStatus(status: AppServerStatus): void {
+    if (this.appServerStatus === status) return
+    this.appServerStatus = status
+    for (const listener of this.statusListeners) {
+      listener(status)
+    }
+  }
 
   private start(): void {
     if (this.process) return
 
     this.stopping = false
-    const proc = spawn('codex', ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    this.setStatus('starting')
+    let proc: ChildProcessWithoutNullStreams
+    try {
+      proc = spawn('codex', ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (error) {
+      this.setStatus('failed')
+      throw error
+    }
     this.process = proc
 
     proc.stdout.setEncoding('utf8')
@@ -1002,6 +1021,10 @@ class AppServerProcess {
       // Keep stderr silent in dev middleware; JSON-RPC errors are forwarded via responses.
     })
 
+    proc.on('error', () => {
+      this.setStatus('failed')
+    })
+
     proc.on('exit', () => {
       const failure = new Error(this.stopping ? 'codex app-server stopped' : 'codex app-server exited unexpectedly')
       for (const request of this.pending.values()) {
@@ -1013,6 +1036,7 @@ class AppServerProcess {
       this.process = null
       this.initialized = false
       this.readBuffer = ''
+      this.setStatus(this.stopping ? 'stopped' : 'failed')
     })
   }
 
@@ -1157,24 +1181,41 @@ class AppServerProcess {
   private queuePersistedServerRequestsFlush(): void {
     this.persistedServerRequestsFlushChain = this.persistedServerRequestsFlushChain
       .catch(() => {})
-      .then(async () => {
-        this.prunePersistedServerRequests()
-        const ledgerPath = this.persistedServerRequestsLedgerPath
-        await mkdir(dirname(ledgerPath), { recursive: true })
-        const payload = {
-          version: 1,
-          requests: Array.from(this.persistedServerRequests.values()).sort((first, second) =>
-            first.receivedAtIso.localeCompare(second.receivedAtIso),
-          ),
-        }
-        await writeFile(ledgerPath, JSON.stringify(payload, null, 2), 'utf8')
-      })
+      .then(() => this.writePersistedServerRequests())
       .catch((error) => {
         console.warn('[codex-web-local] Failed to persist server requests:', error)
       })
   }
 
-  private async upsertPersistedServerRequest(record: PersistedServerRequest): Promise<void> {
+  private async writePersistedServerRequests(): Promise<void> {
+    this.prunePersistedServerRequests()
+    const ledgerPath = this.persistedServerRequestsLedgerPath
+    await mkdir(dirname(ledgerPath), { recursive: true })
+    const payload = {
+      version: 1,
+      requests: Array.from(this.persistedServerRequests.values()).sort((first, second) =>
+        first.receivedAtIso.localeCompare(second.receivedAtIso),
+      ),
+    }
+    await writeFile(ledgerPath, JSON.stringify(payload, null, 2), 'utf8')
+  }
+
+  private enqueuePersistedServerRequestMutation(mutation: () => Promise<void>): void {
+    this.persistedServerRequestsFlushChain = this.persistedServerRequestsFlushChain
+      .catch(() => {})
+      .then(async () => {
+        await mutation()
+        await this.writePersistedServerRequests()
+      })
+      .catch((error) => {
+        console.warn('[codex-web-local] Failed to persist server request mutation:', error)
+      })
+  }
+
+  private async upsertPersistedServerRequest(
+    record: PersistedServerRequest,
+    options: { flush?: boolean } = {},
+  ): Promise<void> {
     await this.ensurePersistedServerRequestsLoaded()
     const current = this.persistedServerRequests.get(record.id)
     this.persistedServerRequests.set(record.id, current
@@ -1187,7 +1228,9 @@ class AppServerProcess {
           dismissedBy: current.dismissedBy,
         }
       : record)
-    this.queuePersistedServerRequestsFlush()
+    if (options.flush !== false) {
+      this.queuePersistedServerRequestsFlush()
+    }
   }
 
   private async markPersistedServerRequestResolved(requestId: number, resolutionKind: string): Promise<void> {
@@ -1405,7 +1448,7 @@ class AppServerProcess {
     // Ensure the persisted approval ledger is updated even if the initial upsert
     // has not yet completed. We use the available pendingRequest data to
     // create or update the persisted record and mark it as resolved.
-    void (async () => {
+    this.enqueuePersistedServerRequestMutation(async () => {
       await this.ensurePersistedServerRequestsLoaded()
       const existing = this.persistedServerRequests.get(requestId)
       const resolvedAtIso = new Date().toISOString()
@@ -1433,9 +1476,8 @@ class AppServerProcess {
         })
       }
 
-      this.queuePersistedServerRequestsFlush()
       this.triggerSharedSessionSnapshotSync(threadId)
-    })()
+    })
     this.sendServerRequestReply(requestId, reply)
     this.emitNotification({
       method: 'server/request/resolved',
@@ -1459,10 +1501,10 @@ class AppServerProcess {
       threadId,
     }
     this.pendingServerRequests.set(requestId, pendingRequest)
-    void (async () => {
+    this.enqueuePersistedServerRequestMutation(async () => {
       const persisted = await this.toPersistedServerRequest(pendingRequest)
-      await this.upsertPersistedServerRequest(persisted)
-    })()
+      await this.upsertPersistedServerRequest(persisted, { flush: false })
+    })
     this.triggerSharedSessionSnapshotSync(threadId)
 
     this.emitNotification({
@@ -1503,6 +1545,7 @@ class AppServerProcess {
     })
       .then(() => {
         this.initialized = true
+        this.setStatus('ready')
       })
       .finally(() => {
         if (this.initializationPromise === initialization) {
@@ -1523,6 +1566,14 @@ class AppServerProcess {
     this.notificationListeners.add(listener)
     return () => {
       this.notificationListeners.delete(listener)
+    }
+  }
+
+  onStatus(listener: (status: AppServerStatus) => void): () => void {
+    this.statusListeners.add(listener)
+    listener(this.appServerStatus)
+    return () => {
+      this.statusListeners.delete(listener)
     }
   }
 
@@ -1665,7 +1716,10 @@ class AppServerProcess {
   }
 
   dispose(): void {
-    if (!this.process) return
+    if (!this.process) {
+      this.setStatus('stopped')
+      return
+    }
 
     const proc = this.process
     this.stopping = true
@@ -2140,6 +2194,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         res.setHeader('Connection', 'keep-alive')
         res.setHeader('X-Accel-Buffering', 'no')
 
+        const writeEvent = (eventName: string, payload: unknown): void => {
+          if (res.writableEnded || res.destroyed) return
+          res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
+        }
+
         const unsubscribe = appServer.onNotification((notification) => {
           if (res.writableEnded || res.destroyed) return
           const payload = {
@@ -2148,8 +2207,14 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           }
           res.write(`data: ${JSON.stringify(payload)}\n\n`)
         })
+        const unsubscribeStatus = appServer.onStatus((status) => {
+          writeEvent('bridge-status', {
+            status,
+            atIso: new Date().toISOString(),
+          })
+        })
 
-        res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`)
+        writeEvent('ready', { ok: true })
         const keepAlive = setInterval(() => {
           res.write(': ping\n\n')
         }, 15000)
@@ -2157,6 +2222,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const close = () => {
           clearInterval(keepAlive)
           unsubscribe()
+          unsubscribeStatus()
           if (!res.writableEnded) {
             res.end()
           }

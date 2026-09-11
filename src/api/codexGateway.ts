@@ -12,6 +12,7 @@ import {
   respondServerRequest,
   subscribeRpcNotifications,
   type RpcNotification,
+  type RpcNotificationStreamStatus,
 } from './codexRpcClient'
 import type {
   ConfigReadResponse,
@@ -633,11 +634,14 @@ export async function getNotificationCatalog(): Promise<string[]> {
   return fetchRpcNotificationCatalog()
 }
 
-export function subscribeCodexNotifications(onNotification: (value: RpcNotification) => void): () => void {
-  return subscribeRpcNotifications(onNotification)
+export function subscribeCodexNotifications(
+  onNotification: (value: RpcNotification) => void,
+  onStatus?: (status: RpcNotificationStreamStatus) => void,
+): () => void {
+  return subscribeRpcNotifications(onNotification, onStatus)
 }
 
-export type { RpcNotification }
+export type { RpcNotification, RpcNotificationStreamStatus }
 
 export async function replyToServerRequest(
   id: number,

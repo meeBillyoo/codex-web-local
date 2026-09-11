@@ -140,6 +140,24 @@
           >
             {{ isOnline ? t('app.onlineRestored') : t('app.offlineNotice') }}
           </div>
+          <div
+            v-if="codexStatusMessage"
+            class="service-status-banner"
+            :data-status="codexStatusKind"
+            role="status"
+            aria-live="polite"
+          >
+            <span class="service-status-banner-message">{{ codexStatusMessage }}</span>
+            <button
+              v-if="showStatusRetry"
+              class="service-status-banner-action"
+              type="button"
+              :disabled="isRetryingSynchronization"
+              @click="onRetrySynchronization"
+            >
+              {{ t('app.refreshNow') }}
+            </button>
+          </div>
           <p v-if="error" class="content-error">{{ error }}</p>
           <template v-if="isHomeRoute">
             <div class="content-grid">
@@ -353,6 +371,7 @@ const {
   selectedLiveOverlay,
   sharedSessionSnapshotByThreadId,
   selectedThreadId,
+  selectedTurnHealth,
   availableModelIds,
   selectedModelId,
   selectedReasoningEffort,
@@ -364,8 +383,13 @@ const {
   isInterruptingTurn,
   isAutoRefreshEnabled,
   autoRefreshSecondsLeft,
+  connectionState,
+  syncError,
+  modelLoadState,
+  modelLoadError,
   error,
   refreshAll,
+  retrySynchronization,
   selectThread,
   setThreadScrollState,
   archiveThreadById,
@@ -489,6 +513,29 @@ const pwaUpdateButtonLabel = computed(() =>
       ? t('app.checkingForUpdates')
       : t('app.checkForUpdates'),
 )
+const codexStatusKind = computed<'warning' | 'error'>(() => {
+  if (syncError.value || modelLoadState.value === 'error' || selectedTurnHealth.value?.isStale) {
+    return 'error'
+  }
+  return 'warning'
+})
+const codexStatusMessage = computed(() => {
+  if (!hasInitialized.value || !isOnline.value) return ''
+  if (connectionState.value === 'connecting') return t('app.codexConnecting')
+  if (connectionState.value === 'reconnecting') return t('app.codexReconnecting')
+  if (connectionState.value === 'closed') return t('app.codexDisconnected')
+  if (syncError.value) return t('app.syncFailed', { message: syncError.value })
+  if (modelLoadState.value === 'error') {
+    return t('app.modelLoadFailed', { message: modelLoadError.value || t('app.codexDisconnected') })
+  }
+  if (selectedTurnHealth.value?.isStale) return t('app.turnStale')
+  return ''
+})
+const showStatusRetry = computed(() =>
+  codexStatusMessage.value.length > 0 &&
+  (connectionState.value !== 'connected' || Boolean(syncError.value) || modelLoadState.value === 'error' || Boolean(selectedTurnHealth.value?.isStale)),
+)
+const isRetryingSynchronization = ref(false)
 function normalizeActivityText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/gu, ' ')
 }
@@ -571,13 +618,25 @@ const newThreadFolderOptions = computed(() => {
   const seenCwds = new Set<string>()
 
   for (const group of projectGroups.value) {
-    const cwd = group.threads[0]?.cwd?.trim() ?? ''
-    if (!cwd || seenCwds.has(cwd)) continue
-    seenCwds.add(cwd)
-    options.push({
-      value: cwd,
-      label: projectDisplayNameById.value[group.projectName] ?? group.projectName,
-    })
+    const projectLabel = projectDisplayNameById.value[group.projectName] ?? group.projectName
+    const configured = projectSourceFoldersById.value[group.projectName]
+    const configuredFolders = configured?.folders?.filter((folder) => folder.trim().length > 0) ?? []
+    const primaryCwd = configured?.primaryCwd?.trim() ?? ''
+    const folderOptions = primaryCwd && configuredFolders.includes(primaryCwd)
+      ? [primaryCwd, ...configuredFolders.filter((folder) => folder !== primaryCwd)]
+      : configuredFolders
+    const folders = folderOptions.length > 0
+      ? folderOptions
+      : Array.from(new Set(group.threads.map((thread) => thread.cwd.trim()).filter(Boolean)))
+
+    for (const cwd of folders) {
+      if (!cwd || seenCwds.has(cwd)) continue
+      seenCwds.add(cwd)
+      options.push({
+        value: cwd,
+        label: folders.length > 1 ? `${projectLabel} · ${cwd}` : projectLabel,
+      })
+    }
   }
 
   return options
@@ -689,6 +748,16 @@ function onDismissPersistedServerRequest(requestId: number): void {
 
 function onToggleAutoRefreshTimer(): void {
   toggleAutoRefreshTimer()
+}
+
+async function onRetrySynchronization(): Promise<void> {
+  if (isRetryingSynchronization.value) return
+  isRetryingSynchronization.value = true
+  try {
+    await retrySynchronization()
+  } finally {
+    isRetryingSynchronization.value = false
+  }
 }
 
 function cycleThemeMode(): void {
@@ -1293,6 +1362,27 @@ async function submitFirstMessageForNewThread(payload: ComposerSubmitPayload): P
   border-color: var(--color-success-text);
   background: var(--color-success-soft);
   color: var(--color-success-text);
+}
+
+.service-status-banner {
+  @apply mx-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs leading-4;
+  border-color: var(--color-warning-text);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
+.service-status-banner[data-status='error'] {
+  border-color: var(--color-danger-text);
+  background: var(--color-danger-soft);
+  color: var(--color-danger-text);
+}
+
+.service-status-banner-message {
+  @apply min-w-0 flex-1;
+}
+
+.service-status-banner-action {
+  @apply shrink-0 rounded-md border border-current px-2 py-1 text-[11px] font-medium transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .content-error {

@@ -12,6 +12,12 @@ export type RpcNotification = {
   atIso: string
 }
 
+export type RpcNotificationStreamStatus =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'closed'
+
 type ServerRequestReplyBody = {
   id: number
   result?: unknown
@@ -153,12 +159,25 @@ function toNotification(value: unknown): RpcNotification | null {
   }
 }
 
-export function subscribeRpcNotifications(onNotification: (value: RpcNotification) => void): () => void {
+export function subscribeRpcNotifications(
+  onNotification: (value: RpcNotification) => void,
+  onStatus?: (status: RpcNotificationStreamStatus) => void,
+): () => void {
   if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+    onStatus?.('closed')
     return () => {}
   }
 
+  onStatus?.('connecting')
   const source = new EventSource('/codex-api/events')
+
+  source.onopen = () => {
+    onStatus?.('connected')
+  }
+
+  source.onerror = () => {
+    onStatus?.(source.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting')
+  }
 
   source.onmessage = (event) => {
     try {
@@ -172,8 +191,24 @@ export function subscribeRpcNotifications(onNotification: (value: RpcNotificatio
     }
   }
 
+  source.addEventListener('bridge-status', (event) => {
+    try {
+      const parsed = JSON.parse((event as MessageEvent).data) as { status?: unknown }
+      if (parsed.status === 'ready') {
+        onStatus?.('connected')
+      } else if (parsed.status === 'starting') {
+        onStatus?.('connecting')
+      } else if (parsed.status === 'failed' || parsed.status === 'stopped') {
+        onStatus?.('reconnecting')
+      }
+    } catch {
+      // Ignore malformed bridge status events.
+    }
+  })
+
   return () => {
     source.close()
+    onStatus?.('closed')
   }
 }
 
